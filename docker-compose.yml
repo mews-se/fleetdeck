@@ -2,7 +2,7 @@ services:
   fleetdeck:
     # Pinned on purpose: this container runs commands on production hosts,
     # so a new version is a deliberate bump, never a watchtower pull.
-    image: ghcr.io/mews-se/fleetdeck:0.1.1
+    image: ghcr.io/mews-se/fleetdeck:0.1.2
     container_name: fleetdeck
     restart: unless-stopped
     user: "1000:1000"
