@@ -22,11 +22,15 @@ linked; fleetdeck is the page you open first.
   collector.
 - **Hosts**: every Beszel agent with CPU, memory, disk, temperature and uptime,
   joined with the host list from the config so a test VM that is off by rule
-  shows grey, not red.
+  shows grey, not red. Each host has its own page with 24 hours of curves, the
+  guest it runs as and its config read from PVE, its containers, the Uptime
+  Kuma monitors that point at it, its share of the day's DNS queries, and the
+  catalog entries and runs that concern it.
 - **Guests**: both Proxmox nodes with their guests and storages. Guests listed
   as free start and stop from here; everything else links to PDM.
 - **Containers**: every Dockhand environment with image, state and pending
-  image updates.
+  image updates, and a button per row for the container operations the
+  catalog allows there.
 - **Network**: Uptime Kuma monitors, AdGuard Home statistics with the last
   24 hours as a curve, and seven days of speed tests per site.
 - **Upstream**: the issues and pull requests you are waiting on, and the
@@ -41,7 +45,8 @@ One Python process. A scheduler runs one asyncio task per source with its own
 interval and writes the latest state and the numeric series to SQLite in WAL
 mode. FastAPI serves the pages, one JSON endpoint per page that the page
 refreshes from, and two event streams. Actions come only from the catalog:
-an argv list or a PVE power operation, never a shell string from the browser.
+an argv list over ssh, a PVE power operation or a container operation through
+Dockhand's API, never a shell string from the browser.
 
 There is no login. The console is meant for a LAN and a tailnet, never a
 public reverse proxy. Every POST still has to come from the console's own
@@ -106,6 +111,17 @@ starts and a wrong one stops it: policy against the host's rule, PVE
 operations against `free_guests`, parameters against their patterns, and a
 short list of commands that are never allowed. Runs are serialised per target
 and kept in `data/runs/`.
+
+| kind | run | what happens |
+|---|---|---|
+| `ssh` | an argv list, `{name}` placeholders filled from `params` | the command runs on the target with the console's key |
+| `pve` | `{vmid, type, op}` with op `start`, `shutdown`, `stop` or `reboot` | a power operation through the PVE API, only for guests in `free_guests` |
+| `dockhand` | `{op, container}` with op `start`, `stop`, `restart` or `update` | the operation through Dockhand's API in the target's environment |
+
+An entry names one `target` or a list of `targets`; with a list the Actions
+page shows a host picker and every host is checked against the policy. A
+`dockhand` entry whose container is a parameter appears as a button on every
+container row of the environments it targets.
 
 Both files have a complete example next to them in `config/`.
 
