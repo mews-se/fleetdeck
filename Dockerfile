@@ -20,7 +20,7 @@ ENV FLEETDECK_CONFIG=/config/fleetdeck.yml \
     FLEETDECK_DB=/data/fleetdeck.db \
     FLEETDECK_RUNS=/data/runs \
     FLEETDECK_SECRETS=/secrets \
-    FLEETDECK_KEY=/keys/fleetdeck_ed25519 \
+    FLEETDECK_SSH_IDENTITY=/keys/fleetdeck_ed25519 \
     FLEETDECK_PORT=8310
 VOLUME /data
 EXPOSE 8310

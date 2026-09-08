@@ -16,6 +16,6 @@ class Settings:
     db: str = _env("DB", "/data/fleetdeck.db")
     runs: str = _env("RUNS", "/data/runs")
     secrets: str = _env("SECRETS", "/secrets")
-    key: str = _env("KEY", "/keys/fleetdeck_ed25519")
+    key: str = _env("SSH_IDENTITY", "/keys/fleetdeck_ed25519")
     bind: str = _env("BIND", "0.0.0.0")
     port: int = int(_env("PORT", "8310"))
