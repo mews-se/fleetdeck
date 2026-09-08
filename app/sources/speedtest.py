@@ -53,11 +53,12 @@ class Speedtest(Source):
     async def collect(self):
         db = self.ctx.db
         since = db.last_speedtest_ts(self.instance) or self.ctx.now() - BACKFILL
-        since_local = datetime.fromtimestamp(since, tz=self.tz).strftime("%Y-%m-%d %H:%M:%S")
         headers = {"Authorization": f"Bearer {self.ctx.secrets.get(self.secret)}"}
         url = f"{self.url}/api/v1/results"
+        # The filter takes a bare date and means "from that day"; ids dedupe
+        # the overlap.
         params = {
-            "filter[start_at]": f">{since_local}",
+            "filter[start_at]": datetime.fromtimestamp(since, tz=self.tz).strftime("%Y-%m-%d"),
             "page[size]": 500,
             "sort": "created_at",
         }

@@ -1,4 +1,5 @@
 import json
+import re
 
 import httpx
 import pytest
@@ -206,14 +207,15 @@ async def test_speedtest(cfg, secrets):
     assert len(built) == 2 and missing == {}
     home = next(s for s in built if s.instance == "home")
     await home.collect()
-    assert params[0]["page[size]"] == "500" and params[0]["filter[start_at]"].startswith(">")
+    assert params[0]["page[size]"] == "500"
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", params[0]["filter[start_at]"])
     rows = ctx.db.speedtests("home", 0)
     assert [r["id"] for r in rows] == [1440, 1441, 1442]
     assert rows[0]["download"] == 938.0 and rows[0]["server"] == "Telia Stockholm"
     assert rows[1]["status"] == "failed" and rows[1]["download"] is None
     assert rows[2]["created_at"] - rows[0]["created_at"] == 3601
     await home.collect()
-    assert params[1]["filter[start_at]"] == ">2026-09-08 15:30:04"
+    assert params[1]["filter[start_at]"] == "2026-09-08"
     assert len(ctx.db.speedtests("home", 0)) == 3
 
 
