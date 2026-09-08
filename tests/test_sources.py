@@ -231,8 +231,12 @@ async def test_speedtest(cfg, secrets):
 @pytest.mark.asyncio
 async def test_github(cfg, secrets):
     def handler(request):
-        assert request.headers["authorization"] == "Bearer token"
         p = request.url.path
+        if request.url.host == "10.0.0.6":
+            assert p == "/api/" and "authorization" not in request.headers
+            return httpx.Response(200, json={"status": "OK", "setup": True,
+                                             "version": {"major": 2, "minor": 15, "revision": 1}})
+        assert request.headers["authorization"] == "Bearer token"
         if p.endswith("/issues/98"):
             return httpx.Response(200, content=fixture("github_pr.json"))
         if p.endswith("/issues/100"):
@@ -252,8 +256,6 @@ async def test_github(cfg, secrets):
 
     ctx = make_ctx(cfg, secrets, handler)
     ctx.db.put_snapshot("dockhand", "1:beszel", {"image": "henrygd/beszel", "version": "0.19.0"})
-    ctx.db.put_snapshot("dockhand", "1:docker-nginxproxymanager-app-1",
-                        {"image": "jc21/nginx-proxy-manager:latest", "version": None})
     ctx.db.put_snapshot("dockhand", "4:teslamate-teslamate-1",
                         {"image": "teslamate/teslamate:latest", "version": "v4.2.0"})
     ctx.db.put_snapshot("kuma", "app", {"version": "2.5.3"})
@@ -268,7 +270,8 @@ async def test_github(cfg, secrets):
     rel = {r["repo"]: r for r in ctx.db.releases()}
     assert rel["henrygd/beszel"]["latest_tag"] == "v0.19.1"
     assert rel["henrygd/beszel"]["running_version"] == "0.19.0"
-    assert rel["NginxProxyManager/nginx-proxy-manager"]["running_version"] is None
+    assert rel["NginxProxyManager/nginx-proxy-manager"]["running_version"] == "2.15.1"
+    assert rel["NginxProxyManager/nginx-proxy-manager"]["running_source"] == "npm"
     assert rel["teslamate-org/teslamate"]["running_version"] == "v4.2.0"
     assert rel["louislam/uptime-kuma"]["running_version"] == "2.5.3"
     assert rel["Finsys/dockhand"]["latest_tag"] == "1.0.46"
@@ -284,6 +287,23 @@ def test_image_tag():
     assert github.tag_version("louislam/uptime-kuma:2") == "2"
     assert github.tag_version("jc21/nginx-proxy-manager:latest") is None
     assert github.tag_version("getgrav/grav:php8.3") == "php8.3"
+
+
+@pytest.mark.asyncio
+async def test_npm_version(cfg, secrets):
+    def handler(request):
+        if request.url.host == "down":
+            return httpx.Response(502)
+        if request.url.host == "odd":
+            return httpx.Response(200, json={"version": {"major": 2}})
+        return httpx.Response(200, json={"version": {"major": 2, "minor": 15, "revision": 1}})
+
+    ctx = make_ctx(cfg, secrets, handler)
+    assert await github.npm_version(ctx, "http://npm:81") == "2.15.1"
+    assert await github.npm_version(ctx, "http://down") is None
+    assert await github.npm_version(ctx, "http://odd") is None
+    assert await github.resolve_running(ctx, {"dockhand": {"env": 1, "container": "x"}}) == (
+        None, "dockhand env 1")
 
 
 def test_attention_rules(cfg):

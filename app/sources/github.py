@@ -4,7 +4,6 @@ import re
 
 import httpx
 
-from app.db import Database
 from app.sources import Context, Source, SourceError
 
 API = "https://api.github.com"
@@ -41,8 +40,23 @@ def tag_version(image: str | None) -> str | None:
     return tag if tag and re.search(r"\d", tag) else None
 
 
-def resolve_running(db: Database, running_from: dict) -> tuple[str | None, str | None]:
-    """The version we run, read from what the other sources stored."""
+async def npm_version(ctx: Context, url: str) -> str | None:
+    """Nginx Proxy Manager states its version on /api/ without a login."""
+    try:
+        r = await ctx.http.get(url + "/api/")
+        r.raise_for_status()
+        v = r.json().get("version") or {}
+    except (httpx.HTTPError, ValueError):
+        return None
+    parts = [v.get(k) for k in ("major", "minor", "revision")]
+    if any(p is None for p in parts):
+        return None
+    return ".".join(str(p) for p in parts)
+
+
+async def resolve_running(ctx: Context, running_from: dict) -> tuple[str | None, str | None]:
+    """The version we run, read from what the other sources stored or from the app."""
+    db = ctx.db
     if not running_from:
         return None, None
     kind, spec = next(iter(running_from.items()))
@@ -56,6 +70,8 @@ def resolve_running(db: Database, running_from: dict) -> tuple[str | None, str |
         return (db.get_snapshot("adguard", "status") or {}).get("version"), "adguard"
     if kind == "dockhand_version":
         return (db.get_snapshot("dockhand.system", "version") or {}).get("version"), "dockhand"
+    if kind == "npm":
+        return await npm_version(ctx, spec["url"]), "npm"
     if kind == "pve":
         snap = db.get_snapshot(f"pve.{spec}.version", "version") or {}
         return snap.get("version"), f"pve {spec}"
@@ -114,7 +130,7 @@ class GithubReleases(GithubSource):
     async def collect(self):
         for watch in self.ctx.config.github.releases:
             tag, published, url = await self.latest(watch.repo)
-            running, source = resolve_running(self.ctx.db, watch.running_from)
+            running, source = await resolve_running(self.ctx, watch.running_from)
             self.ctx.db.upsert_release(watch.repo, tag, published, url, running, source)
 
 

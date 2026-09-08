@@ -30,7 +30,8 @@ linked; fleetdeck is the page you open first.
 - **Network**: Uptime Kuma monitors, AdGuard Home statistics with the last
   24 hours as a curve, and seven days of speed tests per site.
 - **Upstream**: the issues and pull requests you are waiting on, and the
-  releases you run against the latest tag.
+  releases you run against the latest tag. The running version comes from
+  the image's version label, the app's own API or a versioned image tag.
 - **Actions**: the catalog, live output over server-sent events, and the run
   history.
 

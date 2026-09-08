@@ -182,8 +182,7 @@ github:
     - {repo: teslamate-org/teslamate, numbers: [5637]}
   watch_releases:
     - {repo: henrygd/beszel, running_from: {dockhand: {env: 1, container: beszel}}}
-    - {repo: NginxProxyManager/nginx-proxy-manager,
-       running_from: {dockhand: {env: 1, container: docker-nginxproxymanager-app-1}}}
+    - {repo: NginxProxyManager/nginx-proxy-manager, running_from: {npm: {url: http://10.0.0.6:81}}}
     - {repo: louislam/uptime-kuma, running_from: {kuma: true}}
     - {repo: AdguardTeam/AdGuardHome, running_from: {adguard: true}}
     - {repo: Finsys/dockhand, running_from: {dockhand_version: true}}

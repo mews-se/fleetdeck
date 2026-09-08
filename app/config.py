@@ -334,6 +334,9 @@ def parse(data: dict) -> Config:
                 spec = _mapping(spec, f"{where}.running_from.dockhand")
                 _int(spec, "env", f"{where}.running_from.dockhand")
                 _str(spec, "container", f"{where}.running_from.dockhand")
+            elif kind == "npm":
+                spec = _mapping(spec, f"{where}.running_from.npm")
+                running[kind] = {"url": _url(spec, f"{where}.running_from.npm")}
             elif kind == "pve":
                 if spec not in pve:
                     raise ConfigError(f"{where}.running_from.pve: unknown pve '{spec}'")

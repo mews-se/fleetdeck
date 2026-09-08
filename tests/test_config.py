@@ -45,6 +45,8 @@ def test_example_loads(cfg):
         (lambda d: d["github"]["watch_threads"][0].update(numbers=[]), "numbers must be"),
         (lambda d: d["github"]["watch_releases"][0].update(running_from={"beszel_os": "x"}),
          "unknown kind"),
+        (lambda d: d["github"]["watch_releases"][1].update(
+            running_from={"npm": {"url": "10.0.0.6:81"}}), "url must start"),
         (lambda d: d["links"].update(bad="ftp://x"), "must be an http"),
         (lambda d: d["nas_window"].update(start="25:00"), "HH:MM"),
         (lambda d: d.pop("hosts"), "at least one host"),
