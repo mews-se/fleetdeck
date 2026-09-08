@@ -1,4 +1,5 @@
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -35,6 +36,59 @@ def test_pages_render(client, path):
     assert r.status_code == 200
     assert 'name="confirm-token"' in r.text
     assert '<script id="data" type="application/json">' in r.text
+
+
+def test_host_page(client):
+    db = client.app.state.console.db
+    db.put_snapshot("beszel", "system:dellpi", {"name": "dellpi", "status": "up", "cpu": 12.5,
+                                                "mem": 40, "disk": 55, "temp": 45, "uptime": 99,
+                                                "kernel": "6.18", "hostname": "dellpi",
+                                                "load": [0.1, 0.2, 0.3]})
+    t = int(time.time()) - 120
+    db.add_samples([("beszel.cpu.dellpi", t, 10.0), ("beszel.cpu.dellpi", t + 60, 12.5),
+                    ("beszel.cpu.dellpi", t - 100000, 99.0)])
+    db.put_snapshot("kuma", "monitor:7", {"id": 7, "name": "dellpi ssh", "type": "port",
+                                          "hostname": "10.0.0.6", "port": "22", "url": None,
+                                          "status": 1, "state": "up", "rtt": 3.0})
+    db.put_snapshot("kuma", "monitor:8", {"id": 8, "name": "pfsense", "type": "port",
+                                          "hostname": "10.0.0.1", "port": "8000", "url": None,
+                                          "status": 1, "state": "up", "rtt": 1.0})
+    db.put_snapshot("adguard", "stats", {"top_clients": [{"name": "10.0.0.6", "count": 321}]})
+    db.put_snapshot("dockhand", "1:grav", {"env": 1, "host": "dellpi", "id": "abc",
+                                           "name": "grav", "image": "grav", "state": "running",
+                                           "status": "Up"})
+    db.put_snapshot("pve.home", "guest:904", {"vmid": 904, "type": "qemu", "name": "testdebug",
+                                              "status": "stopped", "maxmem": 4294967296})
+    db.put_snapshot("pve.home.config", "guest:904",
+                    {"vmid": 904, "type": "qemu", "cores": 2, "memory": 4096, "onboot": False,
+                     "nics": [{"name": "net0", "mac": "bc:24:11:8d:69:3c"}], "disks": []})
+    r = client.get("/hosts/dellpi")
+    assert r.status_code == 200 and "<title>dellpi" in r.text
+    assert '"/api/view/host/dellpi"' in r.text
+    d = client.get("/api/view/host/dellpi").json()
+    assert d["host"]["status"] == "up" and d["system"]["kernel"] == "6.18"
+    assert d["series"]["cpu"] == [[t, t + 60], [10.0, 12.5]]
+    assert d["series"]["temp"] == [[], []]
+    assert [m["id"] for m in d["monitors"]] == [7]
+    assert d["dns"]["queries"] == 321
+    assert d["containers"]["containers"][0]["name"] == "grav"
+    assert {a["id"] for a in d["actions"]} >= {"uptime", "seeda-status", "container-restart"}
+    assert all(a["target"] == "dellpi" and len(a["targets"]) == 1 for a in d["actions"])
+    assert d["guest"] is None and d["links"]["dockhand"].endswith("env=1")
+    g = client.get("/api/view/host/testdebug").json()
+    assert g["guest"]["vmid"] == 904 and g["guest"]["status"] == "stopped"
+    assert g["guest"]["actions"] == {"start": "start-vm-904", "shutdown": "shutdown-vm-904"}
+    assert g["guest"]["config"]["nics"][0]["mac"] == "bc:24:11:8d:69:3c"
+    assert g["guest"]["free"] is True and g["containers"]["off"] is True
+    p = client.get("/api/view/host/proxmox").json()
+    assert p["pve_node"]["id"] == "home" and p["guest"] is None
+    assert client.get("/hosts/nope").status_code == 404
+    assert client.get("/api/view/host/nope").status_code == 404
+    r = client.post("/api/actions/uptime/run", headers=SAME, json={"target": "dellpi"})
+    read_stream(client, r.json()["run_id"])
+    runs = client.get("/api/view/host/dellpi").json()["runs"]
+    assert runs[0]["target"] == "dellpi" and runs[0]["action_id"] == "uptime"
+    assert client.get("/api/view/host/testdebug").json()["runs"] == []
 
 
 def test_page_query_does_not_switch_view(client):

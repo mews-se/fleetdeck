@@ -427,6 +427,12 @@ class Database:
             "SELECT * FROM action_runs ORDER BY id DESC LIMIT ?", (limit,)
         )]
 
+    def runs_for_target(self, target: str, limit: int = 20) -> list[dict]:
+        return [dict(r) for r in self._query(
+            "SELECT * FROM action_runs WHERE target = ? ORDER BY id DESC LIMIT ?",
+            (target, limit),
+        )]
+
     def last_run_per_action(self) -> dict[str, dict]:
         out = {}
         for r in self._query(

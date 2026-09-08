@@ -29,6 +29,7 @@ from app.scheduler import Scheduler
 from app.settings import Settings
 from app.sources import build_sources, make_context
 from app.ssh import ssh_argv
+from app.views import host as hostview
 
 log = logging.getLogger("fleetdeck")
 
@@ -205,6 +206,20 @@ def create_app(settings: Settings | None = None, run_scheduler: bool = True) -> 
 
     for name, title, path in PAGES:
         app.get(path, include_in_schema=False)(page_route(name, title))
+
+    @app.get("/hosts/{host_id}", include_in_schema=False)
+    def host_page(request: Request, host_id: str):
+        if host_id not in console.config.hosts:
+            raise HTTPException(status_code=404)
+        data = hostview.build(console.state(), host_id)
+        return page(request, "hosts", host_id, "host.html", data,
+                    {"view": f"/api/view/host/{host_id}"})
+
+    @app.get("/api/view/host/{host_id}")
+    def api_host(host_id: str):
+        if host_id not in console.config.hosts:
+            raise HTTPException(status_code=404)
+        return hostview.build(console.state(), host_id)
 
     @app.get("/actions/runs/{run_id}", include_in_schema=False)
     def run_page(request: Request, run_id: int):

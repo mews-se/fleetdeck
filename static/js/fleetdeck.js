@@ -79,7 +79,7 @@ const FD = (() => {
       const exit = JSON.parse(e.data).exit;
       if (meta) meta.textContent = `${label} · run #${runId} · ${exit === 0 ? 'done' : 'exit ' + exit}`;
       refreshNav();
-      if (page === 'actions' || page === 'guests' || page === 'containers') refresh();
+      if (view || page === 'actions' || page === 'guests' || page === 'containers') refresh();
     });
     es.onerror = () => { if (es) { es.close(); es = null; } };
   }
@@ -192,7 +192,7 @@ const FD = (() => {
     const kind = { up: 'good', down: 'crit', off: 'off', noagent: 'warn', paused: 'off' };
     $('hosts-t').innerHTML = `<tr>${th('', 'status')}${th('Host', 'id')}${th('Address', 'ipnum')}${th('Site', 'site')}${th('Role', 'role')}${th('Agent', 'agent')}${th('CPU', 'cpu')}${th('Memory', 'mem')}${th('Disk', 'disk')}${th('Temp', 'temp', 'num')}${th('Up', 'uptime', 'num')}<th></th></tr>` +
       sortHosts(d.hosts).map((h) => `<tr>
-        <td>${dot(kind[h.status])}</td><td><b>${esc(h.id)}</b></td><td class="mono">${esc(h.ip || '')}</td><td>${esc(h.site)}</td><td class="wrap">${esc(h.role)}</td>
+        <td>${dot(kind[h.status])}</td><td><b>${h.rule ? `<a href="/hosts/${esc(h.id)}">${esc(h.id)}</a>` : esc(h.id)}</b></td><td class="mono">${esc(h.ip || '')}</td><td>${esc(h.site)}</td><td class="wrap">${esc(h.role)}</td>
         <td class="sub">${h.status === 'noagent' ? '<span class="dim">none</span>' : h.status === 'down' ? `<span class="pill crit">down ${age(h.down_since)}</span>` : h.status === 'off' && !h.agent ? '<span class="dim">off</span>' : esc(h.agent || '')}${h.kernel ? `<br><span class="small">${esc(h.kernel)}</span>` : ''}</td>
         <td>${h.status === 'up' ? bar(h.cpu) : dash}</td><td>${h.status === 'up' ? bar(h.mem) : dash}</td><td>${h.status === 'up' ? bar(h.disk) : dash}</td>
         <td class="num">${h.status === 'up' && h.temp ? `${num(h.temp)} °C` : '—'}</td><td class="num">${h.status === 'up' ? span(h.uptime) : '—'}</td>
@@ -233,6 +233,12 @@ const FD = (() => {
   const opFits = (op, c) => ({ restart: c.state === 'running', stop: c.state === 'running', start: c.state !== 'running', update: !!c.update })[op] ?? true;
   const opButtons = (host, c) => (c.actions || []).filter((x) => opFits(x.op, c))
     .map((x) => `<button class="btn sm" data-run="${esc(x.id)}" data-target="${esc(host)}" data-container="${esc(c.name)}">${esc(x.op[0].toUpperCase() + x.op.slice(1))}${x.policy === 'confirm' ? '…' : ''}</button>`).join(' ');
+  const containerTable = (host, rows) => `<div class="tw"><table><tr><th>Container</th><th>Image</th><th>State</th><th>Status</th><th>Update</th><th></th></tr>
+    ${rows.map((c) => `<tr><td><b>${esc(c.name)}</b></td><td class="mono">${esc(c.image || '')}</td><td>${statePill(c.state)}</td><td class="dim">${esc(c.status || '')}</td><td>${c.update ? pill('info', c.update) : ''}</td><td class="r">${opButtons(host, c)}</td></tr>`).join('')}
+  </table></div>`;
+  const groupBody = (g) => g.off ? `<div class="panel off">Host is shut down${g.guest_status ? ` (${esc(g.guest_status)})` : ''}. Nothing to show until it is started.</div>`
+    : g.env == null ? '<div class="panel off">Running, but not a Dockhand environment: its containers are not read yet.</div>'
+    : g.containers.length ? `<div class="panel">${containerTable(g.host, g.containers)}</div>` : '<div class="panel off">No containers read yet from this environment.</div>';
 
   R.containers = (d) => {
     $('groups').innerHTML = d.groups.map((g) => {
@@ -240,13 +246,9 @@ const FD = (() => {
       const how = g.env != null ? `Dockhand environment ${g.env}` : 'off by rule';
       const extra = sys ? ` · docker ${esc(sys.docker || '?')}${sys.containers ? ` · ${sys.containers.running}/${sys.containers.total} running` : ''}${sys.layers_size ? ` · images ${gb(sys.layers_size)}` : ''}${sys.vulns && sys.vulns.total ? ` · ${sys.vulns.total} vulnerabilities` : ''}` : '';
       return `<div class="hostgroup">
-        <div class="hd"><b>${esc(g.host)}</b><span class="small">${esc(g.ip)}</span><span class="dim">${how}${extra}</span>
+        <div class="hd"><b><a href="/hosts/${esc(g.host)}">${esc(g.host)}</a></b><span class="small">${esc(g.ip)}</span><span class="dim">${how}${extra}</span>
           <span class="links">${g.links.dockhand && g.env != null ? `<a href="${esc(g.links.dockhand)}" target="_blank" rel="noopener">Dockhand</a>` : ''}${g.off ? '<a href="/guests">guests</a>' : ''}</span></div>
-        ${g.off ? `<div class="panel off">Host is shut down${g.guest_status ? ` (${esc(g.guest_status)})` : ''}. Nothing to show until it is started.</div>` :
-        g.env == null ? `<div class="panel off">Running, but not a Dockhand environment: its containers are not read yet.</div>` :
-        g.containers.length ? `<div class="panel"><div class="tw"><table><tr><th>Container</th><th>Image</th><th>State</th><th>Status</th><th>Update</th><th></th></tr>
-          ${g.containers.map((c) => `<tr><td><b>${esc(c.name)}</b></td><td class="mono">${esc(c.image || '')}</td><td>${statePill(c.state)}</td><td class="dim">${esc(c.status || '')}</td><td>${c.update ? pill('info', c.update) : ''}</td><td class="r">${opButtons(g.host, c)}</td></tr>`).join('')}
-        </table></div></div>` : `<div class="panel off">No containers read yet from this environment.</div>`}
+        ${groupBody(g)}
       </div>`;
     }).join('') || '<div class="panel empty">No Docker host configured.</div>';
     bindRuns(d.actions || []);
@@ -285,16 +287,64 @@ const FD = (() => {
       (d.releases.length ? d.releases.map((r) => `<tr><td>${dot(rk[r.state])}</td><td class="sub">${esc(r.repo)}</td><td class="mono">${esc(r.running_version || '?')}</td><td class="mono"><a href="${esc(r.url || '#')}" target="_blank" rel="noopener">${esc(r.latest_tag || '?')}</a>${r.state === 'update' ? ' ' + pill('info', 'update') : ''}</td><td class="dim">${esc(r.running_source || '')}${r.published_at ? ` · ${dateOf(r.published_at)}` : ''}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No releases read yet.</td></tr>');
   };
 
+  const actionRow = (a) => `<tr data-action="${esc(a.id)}"><td><b>${esc(a.title)}</b><br><span class="small">${esc(a.summary)}</span>${a.params.map((p) => ` <label class="small">${esc(p.name)} <input data-param="${esc(p.name)}" value="${esc(p.default)}" pattern="${esc(p.pattern)}"></label>`).join('')}${a.note ? `<br><span class="dim">${esc(a.note)}</span>` : ''}</td><td class="sub">${targetCell(a)}</td><td>${pill(a.policy, a.policy)}</td><td class="num dim">${a.last ? `<a href="/actions/runs/${a.last.id}" title="exit ${a.last.exit}">${age(a.last.ts)}</a>${a.last.exit === 0 ? '' : a.last.exit == null ? ' ⋯' : ' ✗'}` : '—'}</td><td class="r"><button class="btn sm ${a.policy === 'free' ? 'primary' : ''}" data-run="${esc(a.id)}">${a.policy === 'confirm' ? 'Run…' : 'Run'}</button></td></tr>`;
+  const actionTable = (actions, empty) => `<tr><th>Action</th><th>Target</th><th>Policy</th><th class="num">Last</th><th></th></tr>` +
+    (actions.length ? actions.map(actionRow).join('') : `<tr><td colspan="5" class="empty">${empty}</td></tr>`);
+  const runsTable = (runs) => `<tr><th class="num">#</th><th>Action</th><th>Target</th><th>Started</th><th class="num">Took</th><th>Exit</th></tr>` +
+    (runs.length ? runs.map((r) => `<tr><td class="num"><a href="/actions/runs/${r.id}">${r.id}</a></td><td>${esc(r.action_id)}</td><td class="sub">${esc(r.target)}</td><td class="dim">${when(r.started_ts)}</td><td class="num">${r.finished_ts ? span(r.finished_ts - r.started_ts) : '⋯'}</td><td>${r.exit_code == null ? pill('info', 'running') : r.exit_code === 0 ? pill('good', '0') : pill('crit', String(r.exit_code))}</td></tr>`).join('') : '<tr><td colspan="6" class="empty">Nothing has run yet.</td></tr>');
+
   R.actions = (d) => {
     if (changed('catalog', d.actions)) {
-      $('act-t').innerHTML = `<tr><th>Action</th><th>Target</th><th>Policy</th><th class="num">Last</th><th></th></tr>` +
-      (d.actions.length ? d.actions.map((a) => `<tr data-action="${esc(a.id)}"><td><b>${esc(a.title)}</b><br><span class="small">${esc(a.summary)}</span>${a.params.map((p) => ` <label class="small">${esc(p.name)} <input data-param="${esc(p.name)}" value="${esc(p.default)}" pattern="${esc(p.pattern)}"></label>`).join('')}${a.note ? `<br><span class="dim">${esc(a.note)}</span>` : ''}</td><td class="sub">${targetCell(a)}</td><td>${pill(a.policy, a.policy)}</td><td class="num dim">${a.last ? `<a href="/actions/runs/${a.last.id}" title="exit ${a.last.exit}">${age(a.last.ts)}</a>${a.last.exit === 0 ? '' : a.last.exit == null ? ' ⋯' : ' ✗'}` : '—'}</td><td class="r"><button class="btn sm ${a.policy === 'free' ? 'primary' : ''}" data-run="${esc(a.id)}">${a.policy === 'confirm' ? 'Run…' : 'Run'}</button></td></tr>`).join('') : '<tr><td colspan="5" class="empty">The catalog is empty. Add entries to config/catalog.yml.</td></tr>');
+      $('act-t').innerHTML = actionTable(d.actions, 'The catalog is empty. Add entries to config/catalog.yml.');
       bindRuns(d.actions);
     }
     $('runs-meta').textContent = d.running.length ? `${d.running.length} running` : '';
-    $('runs-t').innerHTML = `<tr><th class="num">#</th><th>Action</th><th>Target</th><th>Started</th><th class="num">Took</th><th>Exit</th></tr>` +
-      (d.runs.length ? d.runs.map((r) => `<tr><td class="num"><a href="/actions/runs/${r.id}">${r.id}</a></td><td>${esc(r.action_id)}</td><td class="sub">${esc(r.target)}</td><td class="dim">${when(r.started_ts)}</td><td class="num">${r.finished_ts ? span(r.finished_ts - r.started_ts) : '⋯'}</td><td>${r.exit_code == null ? pill('info', 'running') : r.exit_code === 0 ? pill('good', '0') : pill('crit', String(r.exit_code))}</td></tr>`).join('') : '<tr><td colspan="6" class="empty">Nothing has run yet.</td></tr>');
+    $('runs-t').innerHTML = runsTable(d.runs);
     $('term-links').innerHTML = d.termix ? d.hosts.map((h) => `<a class="btn sm" href="${esc(d.termix)}" target="_blank" rel="noopener">${esc(h.id)}</a>`).join('') : '<span class="dim">no termix link in the config</span>';
+  };
+
+  R.host = (d) => {
+    const h = d.host, s = d.system, kind = { up: 'good', down: 'crit', off: 'off', noagent: 'warn', paused: 'off' };
+    const ruleKind = { test: 'good', prod: 'warn', readonly: 'off' };
+    $('host-hd').innerHTML = `${dot(kind[h.status])}<b>${esc(h.id)}</b><span class="small">${esc(h.ip || '')}</span><span class="dim">${esc(h.site)}${h.role ? ` · ${esc(h.role)}` : ''} · ${pill(ruleKind[h.rule], h.rule)}${h.ssh ? ` · ${esc(h.ssh)}` : ''}</span><span class="links">${Object.entries(d.links).map(([k, v]) => `<a href="${esc(v)}" target="_blank" rel="noopener">${esc(k)}</a>`).join('')}</span>`;
+    const status = h.status === 'up' ? 'agent connected' : h.status === 'down' ? `down ${age(s && s.down_since)}` : h.status === 'off' ? 'off by rule' : h.status === 'noagent' ? 'no agent' : h.status;
+    $('sys-meta').textContent = s ? `Beszel ${esc(h.beszel)} · ${age(s.snap_ts)} ago` : 'no agent';
+    let kv = `<dt>Status</dt><dd>${esc(status)}</dd>`;
+    if (s) kv += `<dt>Hostname</dt><dd>${esc(s.hostname || '—')}</dd><dt>OS</dt><dd>${esc(s.os || '—')}</dd><dt>Kernel</dt><dd>${esc(s.kernel || '—')}</dd><dt>CPU</dt><dd class="wrap">${esc(s.model || '—')}${s.cores ? ` · ${s.cores} cores` : ''}${s.threads && s.threads !== s.cores ? ` / ${s.threads} threads` : ''}</dd><dt>Load</dt><dd>${(s.load || []).map((x) => num(x, 2)).join(' ') || '—'}</dd><dt>CPU use</dt><dd>${h.status === 'up' ? bar(s.cpu) : '—'}</dd><dt>Memory</dt><dd>${h.status === 'up' ? bar(s.mem) : '—'}</dd><dt>Disk</dt><dd>${h.status === 'up' ? bar(s.disk) : '—'}${Object.entries(s.extra_fs || {}).map(([m, p]) => `<br>${esc(m)} ${bar(p)}`).join('')}</dd><dt>Temp</dt><dd>${h.status === 'up' && s.temp ? `${num(s.temp)} °C` : '—'}</dd><dt>Uptime</dt><dd>${h.status === 'up' ? span(s.uptime) : '—'}</dd><dt>Agent</dt><dd>${esc(s.agent || '—')}</dd>`;
+    else kv += `<dt>Beszel</dt><dd>${h.beszel ? `no data for ${esc(h.beszel)} yet` : 'no agent configured'}</dd>`;
+    const p = d.pve_node;
+    if (p) kv += `<dt>PVE</dt><dd>${esc(p.version || '?')} · ${p.running ?? '—'}/${p.guests ?? '—'} guests running · root ${num(p.root_pct)} % · <a href="${esc(p.url)}" target="_blank" rel="noopener">web UI</a> · <a href="/guests">guests</a></dd>`;
+    $('sys-kv').innerHTML = kv;
+    chart('ch-cpu', d.series.cpu[0], [d.series.cpu[1]], { min: 0, max: 100 });
+    chart('ch-mem', d.series.mem[0], [d.series.mem[1]], { min: 0, max: 100 });
+    chart('ch-temp', d.series.temp[0], [d.series.temp[1]], { min: 0 });
+    const kk = { 0: 'crit', 1: 'good', 2: 'warn', 3: 'off' };
+    $('mon-meta').textContent = d.monitors.length ? `Uptime Kuma · ${d.monitors.filter((m) => m.status === 1).length}/${d.monitors.length} up` : 'Uptime Kuma';
+    $('mon-t').innerHTML = d.monitors.length ? `<tr><th></th><th>Monitor</th><th>Target</th><th class="num">RTT</th></tr>` + d.monitors.map((m) => `<tr><td>${dot(kk[m.status] || 'off')}</td><td><b>${esc(m.name)}</b><br><span class="small">${esc(m.type || '')}</span></td><td class="mono">${esc(m.url || [m.hostname, m.port].filter(Boolean).join(':'))}</td><td class="num">${m.status === 1 && m.rtt != null ? `${num(m.rtt)} ms` : esc(m.state || '')}</td></tr>`).join('') : '<tr><td class="empty">No monitor points at this host.</td></tr>';
+    $('dns-kv').innerHTML = `<dt>DNS today</dt><dd>${d.dns.queries != null ? `${num(d.dns.queries)} queries via AdGuard` : 'not among AdGuard’s top clients'}</dd>`;
+    const g = d.guest;
+    $('guest-panel').hidden = !g;
+    let extra = [];
+    if (g) {
+      const act = g.actions || {};
+      const btn = g.status === 'running' && act.shutdown ? `<button class="btn sm" data-run="${esc(act.shutdown)}">Shut down</button>` : g.status === 'stopped' && act.start ? `<button class="btn sm primary" data-run="${esc(act.start)}">Start</button>` : '';
+      $('guest-meta').innerHTML = `${esc(g.type)} ${g.vmid} on <a href="/hosts/${esc(g.node)}">${esc(g.node)}</a>${g.links.pdm ? ` · <a href="${esc(g.links.pdm)}" target="_blank" rel="noopener">PDM</a>` : ''} · <a href="${esc(g.links.pve)}" target="_blank" rel="noopener">web UI</a>`;
+      const c = g.config;
+      $('guest-kv').innerHTML = `<dt>State</dt><dd>${statePill(g.status)} ${btn}</dd><dt>CPU</dt><dd>${g.status === 'running' ? bar(g.cpu) : '—'}</dd><dt>Memory</dt><dd>${g.status === 'running' ? bar(g.mem_pct) : '—'}${g.maxmem ? ` of ${gb(g.maxmem)}` : ''}</dd><dt>Uptime</dt><dd>${g.status === 'running' ? span(g.uptime) : '—'}</dd><dt>Note</dt><dd>${esc([g.free ? 'free guest' : '', (g.tags || '').replace(/;/g, ' ')].filter(Boolean).join(' · ') || '—')}</dd>` +
+        (c ? `<dt>Config</dt><dd>${c.cores ?? '?'} cores${c.sockets > 1 ? ` × ${c.sockets}` : ''} · ${c.memory ?? '?'} MiB${c.swap ? ` + ${c.swap} swap` : ''}${c.ostype ? ` · ${esc(c.ostype)}` : ''}${c.unprivileged ? ' · unprivileged' : ''}</dd><dt>Boot</dt><dd>${c.onboot ? 'on boot' : 'manual'}${c.startup ? ` · ${esc(c.startup)}` : ''}${c.agent ? ' · guest agent' : ''}</dd>` : '<dt>Config</dt><dd>not read yet</dd>');
+      $('guest-t').innerHTML = c ? `<tr><th>NIC</th><th>MAC</th><th>Bridge</th><th>IP</th></tr>${(c.nics || []).map((n) => `<tr><td class="mono">${esc(n.name)}${n.model ? ` <span class="dim">${esc(n.model)}</span>` : ''}</td><td class="mono">${esc(n.mac || '—')}</td><td class="mono">${esc(n.bridge || '—')}${n.vlan ? ` tag ${n.vlan}` : ''}</td><td class="mono">${esc(n.ip || '—')}</td></tr>`).join('')}<tr><th>Disk</th><th>Volume</th><th>Storage</th><th class="num">Size</th></tr>${(c.disks || []).map((x) => `<tr><td class="mono">${esc(x.name)}</td><td class="mono">${esc(x.volume || '')}</td><td class="mono">${esc(x.storage || '—')}</td><td class="num">${esc(x.size || '—')}</td></tr>`).join('')}` : '';
+      extra = Object.entries(act).map(([op, id]) => ({ id, title: `${op === 'start' ? 'Start' : op === 'shutdown' ? 'Shut down' : op} ${g.type} ${g.vmid}`, target: g.node, policy: 'free', summary: `${op} ${g.vmid}`, params: [] }));
+    }
+    const cg = d.containers;
+    $('cont-panel').hidden = !cg;
+    if (cg) {
+      $('cont-meta').innerHTML = cg.env != null ? `Dockhand environment ${cg.env}${cg.system && cg.system.docker ? ` · docker ${esc(cg.system.docker)}` : ''}${cg.links.dockhand ? ` · <a href="${esc(cg.links.dockhand)}" target="_blank" rel="noopener">Dockhand</a>` : ''}` : 'off by rule';
+      $('cont-body').innerHTML = groupBody(cg);
+    }
+    if (changed('host-catalog', d.actions)) $('act-t').innerHTML = actionTable(d.actions, 'No catalog entry targets this host.');
+    $('runs-meta').textContent = d.running.length ? `${d.running.length} running` : '';
+    $('runs-t').innerHTML = runsTable(d.runs);
+    bindRuns(d.actions.concat(extra));
   };
 
   R.run = (d) => {
@@ -314,13 +364,13 @@ const FD = (() => {
   }
 
   /* ---------- page plumbing ---------- */
-  let page = null, data = null;
+  let page = null, data = null, render = null, view = null;
   async function refresh() {
     try {
-      const r = await fetch(`/api/view/${page}`);
+      const r = await fetch(view || `/api/view/${page}`);
       if (!r.ok) return;
       data = await r.json();
-      R[page](data);
+      R[render](data);
     } catch (e) { /* offline; the next tick tries again */ }
   }
   async function refreshNav() {
@@ -340,13 +390,17 @@ const FD = (() => {
     src.addEventListener('run', () => { if (page === 'actions') refresh(); });
     src.onerror = () => { src.close(); setTimeout(events, 15000); };
   }
-  function init(name, renderer) {
+  /* name = the section for nav and refresh rate; renderer and view override
+     the renderer and the JSON endpoint for pages that are not a section */
+  function init(name, renderer, viewUrl) {
     page = name;
+    render = renderer || name;
+    view = viewUrl || null;
     data = JSON.parse($('data').textContent);
-    R[renderer || name](data);
+    R[render](data);
     clock();
     setInterval(clock, 30000);
-    if (!renderer) {
+    if (view || !renderer) {
       setInterval(refresh, (REFRESH[name] || 60) * 1000);
       setInterval(refreshNav, 60000);
     }

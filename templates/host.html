@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="hostgroup"><div class="hd" id="host-hd"></div></div>
+<div class="grid-3">
+  <div class="panel">
+    <h3>System <span class="meta" id="sys-meta"></span></h3>
+    <dl class="kv" id="sys-kv"></dl>
+  </div>
+  <div class="panel">
+    <h3>Last 24 h <span class="meta">Beszel</span></h3>
+    <div class="legend"><span><i class="data"></i>CPU %</span></div><div class="chart" id="ch-cpu"></div>
+    <div class="legend"><span><i class="data"></i>memory %</span></div><div class="chart" id="ch-mem"></div>
+    <div class="legend"><span><i class="data"></i>temperature °C</span></div><div class="chart" id="ch-temp"></div>
+  </div>
+  <div class="panel">
+    <h3>Monitors <span class="meta" id="mon-meta"></span></h3>
+    <div class="tw"><table id="mon-t"></table></div>
+    <dl class="kv" id="dns-kv"></dl>
+  </div>
+</div>
+<div class="panel" id="guest-panel" hidden style="margin-bottom:16px">
+  <h3>Guest <span class="meta" id="guest-meta"></span></h3>
+  <div class="two">
+    <dl class="kv" id="guest-kv"></dl>
+    <div class="tw"><table id="guest-t"></table></div>
+  </div>
+</div>
+<div class="panel" id="cont-panel" hidden style="margin-bottom:16px">
+  <h3>Containers <span class="meta" id="cont-meta"></span></h3>
+  <div id="cont-body"></div>
+</div>
+<div class="two">
+  <div class="panel">
+    <h3>Actions <span class="meta">from the catalog</span></h3>
+    <div class="tw"><table id="act-t"></table></div>
+  </div>
+  <div class="stack">
+    <div class="panel">
+      <h3>Output <span class="meta" id="term-meta">idle</span></h3>
+      <div class="term" id="term"><span class="c"># pick an action on the left; output streams here and is kept in the history</span></div>
+    </div>
+    <div class="panel">
+      <h3>Recent runs here <span class="meta" id="runs-meta"></span></h3>
+      <div class="tw"><table id="runs-t"></table></div>
+    </div>
+  </div>
+</div>
+<p class="note"><a href="/hosts">← all hosts</a></p>
+{% endblock %}
+{% block init_args %}, "host", {{ view|tojson }}{% endblock %}
