@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="grid-2">
+  <div class="panel">
+    <h3>Uptime Kuma <span class="meta" id="kuma-meta"></span></h3>
+    <div class="tw"><table id="kuma-t"></table></div>
+  </div>
+  <div class="panel">
+    <h3>AdGuard Home <span class="meta" id="ag-meta"></span></h3>
+    <div class="chart" id="ag-chart"></div>
+    <dl class="kv" id="ag-kv"></dl>
+  </div>
+</div>
+<div id="st"></div>
+{% endblock %}

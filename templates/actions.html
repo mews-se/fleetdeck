@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="two">
+  <div class="panel">
+    <h3>Catalog <span class="meta">allowlist only · the console's own key</span></h3>
+    <div class="tw"><table id="act-t"></table></div>
+  </div>
+  <div class="stack">
+    <div class="panel">
+      <h3>Output <span class="meta" id="term-meta">idle</span></h3>
+      <div class="term" id="term"><span class="c"># pick an action on the left; output streams here and is kept in the history</span></div>
+    </div>
+    <div class="panel">
+      <h3>Recent runs <span class="meta" id="runs-meta"></span></h3>
+      <div class="tw"><table id="runs-t"></table></div>
+    </div>
+    <div class="panel">
+      <h3>Terminals <span class="meta">termix</span></h3>
+      <div class="links" id="term-links"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

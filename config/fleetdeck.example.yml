@@ -40,6 +40,41 @@ hosts:
     beszel: testpi5
     rule: prod
     role: Pi 5
+  kodipi5:
+    site: home
+    ip: 10.0.0.7
+    ssh: dietpi@10.0.0.7
+    beszel: kodipi5
+    rule: prod
+    role: Pi 5, Observium
+  testpi:
+    site: home
+    ip: 10.0.0.8
+    ssh: dietpi@10.0.0.8
+    beszel: testpi
+    rule: prod
+    role: Pi 4, wireless
+  pizerow:
+    site: home
+    ip: 10.0.0.13
+    ssh: dietpi@10.0.0.13
+    beszel: pizerow
+    rule: prod
+    role: Zero 2 W
+  mbp:
+    site: home
+    ip: 10.0.0.170
+    beszel: mbp
+    rule: readonly
+    off_by_default: true
+    role: MacBook Pro
+  macmini:
+    site: home
+    ip: 10.0.0.171
+    beszel: macmini
+    rule: readonly
+    off_by_default: true
+    role: Mac mini
   testdebug:
     site: home
     ip: 10.0.0.185
@@ -55,6 +90,25 @@ hosts:
     rule: readonly
     window: nas
     role: NAS, on by schedule
+  brkpi5:
+    site: brk
+    ip: 10.0.1.8
+    ssh: dietpi@10.0.1.8
+    beszel: brkpi5
+    rule: prod
+    role: Pi 5, WireGuard
+  flight:
+    site: brk
+    ip: 10.0.1.12
+    beszel: flight
+    rule: readonly
+    role: ADS-B receiver
+  rco:
+    site: brk
+    ip: 10.0.1.228
+    beszel: RCO
+    rule: readonly
+    role: RCO
   proxbrk:
     site: brk
     ip: 10.0.1.7

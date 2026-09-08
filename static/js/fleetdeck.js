@@ -1,0 +1,304 @@
+/* Renders every page from its JSON, refreshes it on an interval and streams
+   action output over SSE. One file, no framework. */
+const FD = (() => {
+  const REFRESH = { overview: 30, hosts: 30, guests: 30, containers: 60, network: 60, upstream: 120, actions: 30 };
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const dash = '<span class="dim">—</span>';
+  const pill = (k, t) => `<span class="pill ${k}">${esc(t)}</span>`;
+  const dot = (k) => `<span class="dot ${k} inline"></span>`;
+  const bar = (p) => p == null ? dash : `<span class="bar ${p >= 95 ? 'crit' : p >= 85 ? 'warn' : ''}"><i style="width:${Math.min(100, p)}%"></i></span>${Math.round(p)} %`;
+  const num = (v, d = 0) => v == null || Number.isNaN(Number(v)) ? '—' : Number(v).toFixed(d);
+  const nowS = () => Date.now() / 1000;
+  const span = (s) => {
+    if (s == null) return '—';
+    s = Math.max(0, s);
+    if (s < 90) return `${Math.round(s)} s`;
+    if (s < 5400) return `${Math.round(s / 60)} min`;
+    if (s < 172800) return `${Math.round(s / 3600)} h`;
+    return `${Math.round(s / 86400)} d`;
+  };
+  const age = (ts) => ts ? span(nowS() - ts) : '—';
+  const when = (ts) => ts ? new Date(ts * 1000).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+  const dateOf = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '—';
+  const gb = (b) => b == null ? '—' : `${(b / 1e9).toFixed(b >= 1e11 ? 0 : 1)} GB`;
+  const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  // Tables with inputs are only rebuilt when their data changed, so a typed
+  // parameter survives the periodic refresh.
+  const memo = {};
+  const changed = (key, obj) => { const j = JSON.stringify(obj); if (memo[key] === j) return false; memo[key] = j; return true; };
+
+  const stateKind = { running: 'good', up: 'good', stopped: 'off', template: 'off', exited: 'warn', paused: 'off', dead: 'crit', restarting: 'warn', created: 'off' };
+  const statePill = (s) => pill(stateKind[s] || 'off', s || 'unknown');
+
+  const charts = new Map();
+  function chart(id, xs, series, opts = {}) {
+    const el = $(id);
+    if (!el || !window.uPlot) return;
+    if (charts.has(id)) { charts.get(id).destroy(); charts.delete(id); }
+    el.innerHTML = '';
+    if (!xs || xs.length < 2) { el.innerHTML = '<div class="empty">no data yet</div>'; return; }
+    const colors = [cssVar('--data'), cssVar('--data-2')];
+    const height = el.clientHeight || 64;
+    const u = new uPlot({
+      width: el.clientWidth || 320,
+      height,
+      cursor: { show: false },
+      legend: { show: false },
+      padding: [4, 4, 4, 4],
+      scales: { x: { time: true }, y: { range: (u, min, max) => [opts.min ?? Math.min(min, max), opts.max ?? max] } },
+      axes: [{ show: false }, { show: false }],
+      series: [{}, ...series.map((s, i) => ({ stroke: colors[i], width: 2, fill: i === 0 ? colors[i] + '22' : undefined, points: { show: false }, spanGaps: true }))],
+    }, [xs, ...series], el);
+    charts.set(id, u);
+    if (!el.dataset.observed) {
+      el.dataset.observed = '1';
+      new ResizeObserver(() => { const c = charts.get(id); if (c) c.setSize({ width: el.clientWidth, height }); }).observe(el);
+    }
+  }
+
+  /* ---------- action runs ---------- */
+  let es = null;
+  function termLine(term, text) {
+    const cls = text.startsWith('$ ') || text.startsWith('POST ') ? 'p' : text === 'exit 0' || text === 'task OK' ? 'ok' : /^(exit [1-9]|error:|killed|task .*(?:ERROR|FAIL)|\d{3}:)/.test(text) ? 'bad' : text.startsWith('waiting') || text.startsWith('task ') ? 'c' : '';
+    const el = document.createElement('span');
+    el.className = cls;
+    el.textContent = text + '\n';
+    term.appendChild(el);
+    term.scrollTop = term.scrollHeight;
+  }
+  function stream(runId, term, meta, label) {
+    if (es) es.close();
+    term.innerHTML = '';
+    if (meta) meta.textContent = `${label} · run #${runId}`;
+    es = new EventSource(`/api/actions/runs/${runId}/stream`);
+    es.addEventListener('line', (e) => termLine(term, JSON.parse(e.data)));
+    es.addEventListener('end', (e) => {
+      es.close(); es = null;
+      const exit = JSON.parse(e.data).exit;
+      if (meta) meta.textContent = `${label} · run #${runId} · ${exit === 0 ? 'done' : 'exit ' + exit}`;
+      refreshNav();
+      if (page === 'actions' || page === 'guests') refresh();
+    });
+    es.onerror = () => { if (es) { es.close(); es = null; } };
+  }
+  async function refreshToken() {
+    try {
+      const r = await fetch('/api/token');
+      if (r.ok) document.querySelector('meta[name=confirm-token]').content = (await r.json()).token;
+    } catch (e) { /* the next page load issues a new one */ }
+  }
+  async function run(a, row) {
+    const term = $('term'), meta = $('term-meta'), panel = $('term-panel');
+    if (panel) panel.hidden = false;
+    let token = null;
+    if (a.policy === 'confirm') {
+      if (!confirm(`${a.title} on ${a.target}?\n\n${a.summary}\n\nThis target is production. Run it?`)) return;
+      token = document.querySelector('meta[name=confirm-token]').content;
+    }
+    const params = {};
+    if (row) row.querySelectorAll('input[data-param]').forEach((i) => { params[i.dataset.param] = i.value; });
+    let r;
+    try {
+      r = await fetch(`/api/actions/${a.id}/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ params, token }) });
+    } catch (e) { term.innerHTML = ''; termLine(term, `error: ${e}`); return; }
+    if (token) refreshToken();
+    if (!r.ok) {
+      let detail = r.statusText;
+      try { detail = (await r.json()).detail || detail; } catch (e) { /* not JSON */ }
+      term.innerHTML = ''; termLine(term, `error: ${r.status} ${detail}`);
+      return;
+    }
+    const { run_id } = await r.json();
+    stream(run_id, term, meta, `${a.title} · ${a.target}`);
+  }
+
+  /* ---------- renderers ---------- */
+  const R = {};
+
+  R.overview = (d) => {
+    $('stats').innerHTML = d.stats.map((s) => `<div class="stat ${s.kind || ''}"><span class="l">${esc(s.label)}</span><span class="v">${esc(s.value)}${s.of != null ? `<small>/${esc(s.of)}</small>` : ''}${s.unit ? ` <small>${esc(s.unit)}</small>` : ''}</span><span class="s">${esc(s.sub)}</span></div>`).join('');
+    $('attn-meta').textContent = d.attention.length ? `${d.attention.length} item${d.attention.length === 1 ? '' : 's'}` : 'all clear';
+    $('attn').innerHTML = d.attention.length ? d.attention.map((a) => `<li><span class="dot ${a.severity}"></span><div><div class="t">${esc(a.title)}</div><div class="d">${esc(a.detail || '')}${a.detail ? ' · ' : ''}since ${when(a.first_seen)}</div></div><span class="src">${esc(a.source)}</span></li>`).join('') : '<li class="empty">Nothing needs attention.</li>';
+    const nas = d.nas;
+    if (nas && nas.window) {
+      $('nas-panel').hidden = false;
+      const [sh, sm] = nas.window.start.split(':').map(Number), [eh, em] = nas.window.end.split(':').map(Number);
+      const s = (sh * 60 + sm) / 1440 * 100, e = (eh * 60 + em) / 1440 * 100;
+      const now = new Date(); const n = (now.getHours() * 60 + now.getMinutes()) / 1440 * 100;
+      const spans = s <= e ? `<i style="left:${s}%;width:${e - s}%"></i>` : `<i style="left:0;width:${e}%"></i><i style="left:${s}%;width:${100 - s}%"></i>`;
+      $('nas-track').innerHTML = `${spans}<b style="left:${n}%"></b>`;
+      $('nas-meta').textContent = `${nas.ip || ''} · ${nas.window.start}–${nas.window.end}`;
+      $('nas-kv').innerHTML = `<dt>Window</dt><dd>${nas.window.on ? `open, closes ${nas.window.end}` : `closed, opens ${nas.window.start}`}</dd><dt>Beszel</dt><dd>${esc(nas.status || 'no agent data')}</dd>`;
+    }
+    const w = d.wan;
+    if (w) {
+      $('wan-meta').textContent = `speedtest-tracker ${w.id} · 7 days`;
+      chart('wan-chart', w.series[0], [w.series[1]], { min: 0 });
+      const l = w.latest;
+      $('wan-kv').innerHTML = l ? `<dt>Last test ${when(l.created_at)}</dt><dd>${l.status === 'completed' ? `${num(l.download)} ↓ · ${num(l.upload)} ↑ Mbit/s · ${num(l.ping, 1)} ms` : esc(l.status)}</dd><dt>Last 24 h</dt><dd>${w.day.count} tests · ${w.day.failed} failed</dd><dt>7 days</dt><dd>min ${num(w.week.min)} · max ${num(w.week.max)} Mbit/s</dd>` : '<dt>No results</dt><dd>—</dd>';
+    } else {
+      $('wan-meta').textContent = 'speedtest-tracker';
+      $('wan-chart').innerHTML = '<div class="empty">not configured</div>';
+      $('wan-kv').innerHTML = '';
+    }
+    $('moved').innerHTML = d.moved.length ? d.moved.map((m) => `<li><span class="dot ${m.kind === 'release' ? 'info' : 'off'}"></span><div><div class="t"><a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.title)}</a></div><div class="d">${esc(m.detail)}</div></div><span class="src">${esc(m.kind)}</span></li>`).join('') : '<li class="empty">Nothing moved in the last 24 h.</li>';
+    $('quick').innerHTML = d.quick.length ? d.quick.map((a) => `<button class="btn" data-quick="${esc(a.id)}">${esc(a.title)} <span class="pill ${a.policy}">${a.policy}</span></button>`).join('') : '<div class="empty">The catalog is empty.</div>';
+    $('quick').querySelectorAll('[data-quick]').forEach((b) => { const a = d.quick.find((x) => x.id === b.dataset.quick); b.onclick = () => run({ ...a, summary: a.title }); });
+    const src = Object.entries(d.sources).sort();
+    const failing = src.filter(([, r]) => !r.ok && !r.skipped).length;
+    $('sources-meta').textContent = `${src.length} polled · ${failing} failing`;
+    $('sources-t').innerHTML = `<tr><th>Source</th><th>Last run</th><th class="num">Took</th><th>State</th></tr>` +
+      src.map(([n, r]) => `<tr><td class="mono">${esc(n)}</td><td class="dim">${age(r.ts)} ago</td><td class="num">${r.duration_ms} ms</td><td>${r.skipped ? pill('off', 'skipped') : r.ok ? pill('good', 'ok') : pill('warn', 'error')}${!r.ok && r.error ? ` <span class="dim small">${esc(r.error.slice(0, 80))}</span>` : ''}</td></tr>`).join('') +
+      Object.entries(d.unconfigured).map(([n, why]) => `<tr><td class="mono">${esc(n)}</td><td class="dim" colspan="2">${esc(why)}</td><td>${pill('off', 'not configured')}</td></tr>`).join('');
+  };
+
+  R.hosts = (d) => {
+    const c = d.counts;
+    $('hosts-meta').textContent = `${c.up} of ${c.total} up · ${c.off} off by rule · ${c.noagent} without agent`;
+    const kind = { up: 'good', down: 'crit', off: 'off', noagent: 'warn', paused: 'off' };
+    $('hosts-t').innerHTML = `<tr><th></th><th>Host</th><th>Site</th><th>Role</th><th>Agent</th><th>CPU</th><th>Memory</th><th>Disk</th><th class="num">Temp</th><th class="num">Up</th><th></th></tr>` +
+      d.hosts.map((h) => `<tr>
+        <td>${dot(kind[h.status])}</td><td><b>${esc(h.id)}</b><br><span class="small">${esc(h.ip || '')}</span></td><td>${esc(h.site)}</td><td class="wrap">${esc(h.role)}</td>
+        <td class="sub">${h.status === 'noagent' ? '<span class="dim">none</span>' : h.status === 'down' ? `<span class="pill crit">down ${age(h.down_since)}</span>` : h.status === 'off' && !h.agent ? '<span class="dim">off</span>' : esc(h.agent || '')}${h.kernel ? `<br><span class="small">${esc(h.kernel)}</span>` : ''}</td>
+        <td>${h.status === 'up' ? bar(h.cpu) : dash}</td><td>${h.status === 'up' ? bar(h.mem) : dash}</td><td>${h.status === 'up' ? bar(h.disk) : dash}</td>
+        <td class="num">${h.status === 'up' && h.temp ? `${num(h.temp)} °C` : '—'}</td><td class="num">${h.status === 'up' ? span(h.uptime) : '—'}</td>
+        <td><span class="links">${h.beszel ? `<a href="${esc(h.beszel)}" target="_blank" rel="noopener">beszel</a>` : ''}${d.links.termix ? `<a href="${esc(d.links.termix)}" target="_blank" rel="noopener">termix</a>` : ''}</span></td></tr>`).join('');
+  };
+
+  R.guests = (d) => {
+    $('pves').innerHTML = d.pves.map((p) => {
+      const n = p.node;
+      return `<div class="panel">
+        <h3>${esc(p.host)} · ${esc(p.ip || '')} <span class="meta">${esc(p.version || 'no data')}${n.ts ? ` · ${age(n.ts)} ago` : ''} · ${p.pdm ? `<a href="${esc(p.pdm)}" target="_blank" rel="noopener">PDM</a> · ` : ''}<a href="${esc(p.url)}" target="_blank" rel="noopener">web UI</a></span></h3>
+        ${n.ts ? `<dl class="kv" style="margin:0 0 10px"><dt>Node</dt><dd>cpu ${num(n.cpu)} % · mem ${num(n.mem_pct)} % · load ${(n.load || []).map((x) => num(x, 2)).join(' ') || '—'} · iowait ${num(n.iowait, 1)} % · root ${num(n.root_pct)} % · up ${span(n.uptime)}</dd></dl>` : ''}
+        <div class="tw"><table><tr><th class="num">ID</th><th></th><th>Name</th><th>State</th><th>CPU</th><th>Memory</th><th class="num">Up</th><th>Note</th><th></th></tr>
+        ${p.guests.length ? p.guests.map((g) => {
+          const act = g.actions || {};
+          const btn = g.status === 'running' && act.shutdown ? `<button class="btn sm" data-run="${esc(act.shutdown)}">Shut down</button>` : g.status === 'stopped' && act.start ? `<button class="btn sm primary" data-run="${esc(act.start)}">Start</button>` : g.status === 'template' ? '' : p.pdm ? `<a href="${esc(p.pdm)}" target="_blank" rel="noopener">PDM</a>` : '';
+          return `<tr><td class="num">${g.vmid}</td><td class="dim">${g.type}</td><td><b>${esc(g.name || '')}</b></td><td>${statePill(g.status)}</td><td>${g.status === 'running' ? bar(g.cpu) : dash}</td><td>${g.status === 'running' ? bar(g.mem_pct) : dash}</td><td class="num">${g.status === 'running' ? span(g.uptime) : '—'}</td><td class="dim">${[g.free ? 'free' : '', g.rule === 'prod' ? 'prod' : '', g.tags || ''].filter(Boolean).join(' · ')}</td><td class="r">${btn}</td></tr>`;
+        }).join('') : `<tr><td colspan="9" class="empty">No data from this host yet.</td></tr>`}
+        </table></div>
+        ${p.storages.length ? `<div class="tw" style="margin-top:8px"><table><tr><th>Storage</th><th>Type</th><th>Used</th><th class="num">Size</th><th>Content</th></tr>${p.storages.map((s) => `<tr><td class="mono">${esc(s.name)}</td><td class="dim">${esc(s.plugin || '')}</td><td>${s.status === 'available' ? bar(s.pct) : pill('off', s.status || 'unknown')}</td><td class="num">${gb(s.maxdisk)}</td><td class="dim wrap">${esc(s.content || '')}</td></tr>`).join('')}</table></div>` : ''}
+      </div>`;
+    }).join('') || '<div class="panel empty">No PVE host configured.</div>';
+    bindRuns(d.pves.flatMap((p) => p.guests.flatMap((g) => Object.entries(g.actions || {}).map(([op, id]) => ({ id, title: `${op === 'start' ? 'Start' : op === 'shutdown' ? 'Shut down' : op} ${g.type} ${g.vmid}`, target: p.host, policy: 'free', summary: `${op} ${g.vmid}` })))));
+  };
+
+  R.containers = (d) => {
+    $('groups').innerHTML = d.groups.map((g) => {
+      const sys = g.system;
+      const how = g.env != null ? `Dockhand environment ${g.env}` : 'off by rule';
+      const extra = sys ? ` · docker ${esc(sys.docker || '?')}${sys.containers ? ` · ${sys.containers.running}/${sys.containers.total} running` : ''}${sys.layers_size ? ` · images ${gb(sys.layers_size)}` : ''}${sys.vulns && sys.vulns.total ? ` · ${sys.vulns.total} vulnerabilities` : ''}` : '';
+      return `<div class="hostgroup">
+        <div class="hd"><b>${esc(g.host)}</b><span class="small">${esc(g.ip)}</span><span class="dim">${how}${extra}</span>
+          <span class="links">${g.links.dockhand && g.env != null ? `<a href="${esc(g.links.dockhand)}" target="_blank" rel="noopener">Dockhand</a>` : ''}${g.off ? '<a href="/guests">guests</a>' : ''}</span></div>
+        ${g.off ? `<div class="panel off">Host is shut down${g.guest_status ? ` (${esc(g.guest_status)})` : ''}. Nothing to show until it is started.</div>` :
+        g.containers.length ? `<div class="panel"><div class="tw"><table><tr><th>Container</th><th>Image</th><th>State</th><th>Status</th><th>Update</th></tr>
+          ${g.containers.map((c) => `<tr><td><b>${esc(c.name)}</b></td><td class="mono">${esc(c.image || '')}</td><td>${statePill(c.state)}</td><td class="dim">${esc(c.status || '')}</td><td>${c.update ? pill('info', c.update) : ''}</td></tr>`).join('')}
+        </table></div></div>` : `<div class="panel off">No containers read yet${g.env == null ? '' : ' from this environment'}.</div>`}
+      </div>`;
+    }).join('') || '<div class="panel empty">No Docker host configured.</div>';
+  };
+
+  R.network = (d) => {
+    const k = d.kuma, c = k.counts;
+    $('kuma-meta').textContent = k.ts ? `${k.version ? 'v' + k.version + ' · ' : ''}${c.up}/${c.total} up · ${c.down} down · ${c.maintenance} maintenance · ${age(k.ts)} ago` : 'not read yet';
+    const kk = { 0: 'crit', 1: 'good', 2: 'warn', 3: 'off' };
+    $('kuma-t').innerHTML = `<tr><th></th><th>Monitor</th><th>Type</th><th>Target</th><th class="num">RTT</th></tr>` +
+      (k.monitors.length ? k.monitors.map((m) => `<tr><td>${dot(kk[m.status] || 'off')}</td><td><b>${esc(m.name)}</b></td><td class="dim">${esc(m.type || '')}</td><td class="mono">${esc(m.url || [m.hostname, m.port].filter(Boolean).join(':'))}</td><td class="num">${m.status === 1 && m.rtt != null ? `${num(m.rtt)} ms` : esc(m.state || '')}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No monitors read yet.</td></tr>') +
+      (k.url ? `<tr><td colspan="5" class="r"><a href="${esc(k.url)}" target="_blank" rel="noopener">open Uptime Kuma</a></td></tr>` : '');
+    const a = d.adguard, s = a.stats;
+    $('ag-meta').textContent = a.ts ? `${a.status.version || ''} · ${age(a.ts)} ago` : 'not read yet';
+    if (s.hourly_queries) {
+      const n = s.hourly_queries.length, t0 = Math.floor(nowS() / 3600) * 3600 - (n - 1) * 3600;
+      chart('ag-chart', s.hourly_queries.map((_, i) => t0 + i * 3600), [s.hourly_queries, s.hourly_blocked || []], { min: 0 });
+    } else $('ag-chart').innerHTML = '<div class="empty">no data yet</div>';
+    $('ag-kv').innerHTML = a.ts ? `<dt>Queries 24 h</dt><dd>${num(s.queries)}</dd><dt>Blocked</dt><dd>${num(a.blocked_pct, 1)} %</dd><dt>Upstream avg</dt><dd>${num(s.avg_ms)} ms</dd><dt>Top blocked</dt><dd>${(s.top_blocked || []).slice(0, 3).map((x) => esc(x.name)).join(' · ') || '—'}</dd><dt>Top clients</dt><dd>${(s.top_clients || []).slice(0, 3).map((x) => `${esc(x.name)} (${x.count})`).join(' · ') || '—'}</dd>${a.url ? `<dt></dt><dd><a href="${esc(a.url)}" target="_blank" rel="noopener">open AdGuard Home</a></dd>` : ''}` : '';
+    $('st').innerHTML = d.speedtests.map((st) => `<div class="panel" style="margin-top:16px">
+      <h3>WAN · ${esc(st.site)} <span class="meta">speedtest-tracker ${esc(st.id)} · 7 days${st.latest ? ` · last ${when(st.latest.created_at)}` : ''}</span></h3>
+      <div class="chart tall" id="st-${esc(st.id)}"></div>
+      <div class="legend"><span><i class="data"></i>download Mbit/s</span><span><i class="data-2"></i>upload</span><span>${st.week.count} tests · ${st.week.failed} failed · min ${num(st.week.min)} · max ${num(st.week.max)}</span>${st.url ? `<a href="${esc(st.url)}" target="_blank" rel="noopener">open</a>` : ''}</div>
+    </div>`).join('');
+    d.speedtests.forEach((st) => chart(`st-${st.id}`, st.series[0], [st.series[1], st.series[2]], { min: 0 }));
+  };
+
+  R.upstream = (d) => {
+    const c = d.counts;
+    $('up-meta').textContent = `${c.open} open · ${d.threads.length} watched`;
+    const sk = { open: 'good', merged: 'info', closed: 'off' };
+    $('up-t').innerHTML = `<tr><th></th><th>Repo</th><th>Ref</th><th>Title</th><th>Updated</th><th class="num">Comments</th><th>State</th></tr>` +
+      (d.threads.length ? d.threads.map((t) => `<tr><td>${dot(t.moved ? 'info' : sk[t.state] || 'off')}</td><td class="sub">${esc(t.repo)}</td><td class="mono"><a href="${esc(t.url)}" target="_blank" rel="noopener">#${t.number}</a></td><td class="wrap">${esc(t.title)}</td><td class="dim">${dateOf(t.updated_at)}${t.moved ? ' ' + pill('info', 'moved') : ''}</td><td class="num">${t.comments}</td><td>${pill(sk[t.state] || 'off', t.state)}</td></tr>`).join('') : '<tr><td colspan="7" class="empty">No threads read yet.</td></tr>');
+    const rk = { current: 'good', update: 'info', unknown: 'off' };
+    $('rel-t').innerHTML = `<tr><th></th><th>Repo</th><th>Running</th><th>Latest</th><th>Source</th></tr>` +
+      (d.releases.length ? d.releases.map((r) => `<tr><td>${dot(rk[r.state])}</td><td class="sub">${esc(r.repo)}</td><td class="mono">${esc(r.running_version || '?')}</td><td class="mono"><a href="${esc(r.url || '#')}" target="_blank" rel="noopener">${esc(r.latest_tag || '?')}</a>${r.state === 'update' ? ' ' + pill('info', 'update') : ''}</td><td class="dim">${esc(r.running_source || '')}${r.published_at ? ` · ${dateOf(r.published_at)}` : ''}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No releases read yet.</td></tr>');
+  };
+
+  R.actions = (d) => {
+    if (changed('catalog', d.actions)) $('act-t').innerHTML = `<tr><th>Action</th><th>Target</th><th>Policy</th><th class="num">Last</th><th></th></tr>` +
+      (d.actions.length ? d.actions.map((a) => `<tr data-action="${esc(a.id)}"><td><b>${esc(a.title)}</b><br><span class="small">${esc(a.summary)}</span>${a.params.map((p) => ` <label class="small">${esc(p.name)} <input data-param="${esc(p.name)}" value="${esc(p.default)}" pattern="${esc(p.pattern)}"></label>`).join('')}${a.note ? `<br><span class="dim">${esc(a.note)}</span>` : ''}</td><td class="sub">${esc(a.target_label)}</td><td>${pill(a.policy, a.policy)}</td><td class="num dim">${a.last ? `<a href="/actions/runs/${a.last.id}" title="exit ${a.last.exit}">${age(a.last.ts)}</a>${a.last.exit === 0 ? '' : a.last.exit == null ? ' ⋯' : ' ✗'}` : '—'}</td><td class="r"><button class="btn sm ${a.policy === 'free' ? 'primary' : ''}" data-run="${esc(a.id)}">${a.policy === 'confirm' ? 'Run…' : 'Run'}</button></td></tr>`).join('') : '<tr><td colspan="5" class="empty">The catalog is empty. Add entries to config/catalog.yml.</td></tr>');
+    if (changed('catalog-bound', d.actions.map((a) => a.id))) bindRuns(d.actions);
+    $('runs-meta').textContent = d.running.length ? `${d.running.length} running` : '';
+    $('runs-t').innerHTML = `<tr><th class="num">#</th><th>Action</th><th>Target</th><th>Started</th><th class="num">Took</th><th>Exit</th></tr>` +
+      (d.runs.length ? d.runs.map((r) => `<tr><td class="num"><a href="/actions/runs/${r.id}">${r.id}</a></td><td>${esc(r.action_id)}</td><td class="sub">${esc(r.target)}</td><td class="dim">${when(r.started_ts)}</td><td class="num">${r.finished_ts ? span(r.finished_ts - r.started_ts) : '⋯'}</td><td>${r.exit_code == null ? pill('info', 'running') : r.exit_code === 0 ? pill('good', '0') : pill('crit', String(r.exit_code))}</td></tr>`).join('') : '<tr><td colspan="6" class="empty">Nothing has run yet.</td></tr>');
+    $('term-links').innerHTML = d.termix ? d.hosts.map((h) => `<a class="btn sm" href="${esc(d.termix)}" target="_blank" rel="noopener">${esc(h.id)}</a>`).join('') : '<span class="dim">no termix link in the config</span>';
+  };
+
+  R.run = (d) => {
+    const r = d.run;
+    $('run-title').textContent = `${d.title} on ${r.target}`;
+    $('run-kv').innerHTML = `<dt>Command</dt><dd>${esc(r.summary)}</dd><dt>Started</dt><dd>${new Date(r.started_ts * 1000).toLocaleString()}${r.requested_by ? ` by ${esc(r.requested_by)}` : ''}${r.confirmed ? ' · confirmed' : ''}</dd><dt>Result</dt><dd>${r.finished_ts ? `exit ${r.exit_code} after ${span(r.finished_ts - r.started_ts)}` : 'running'}</dd>`;
+    const term = $('term');
+    if (d.live) stream(r.id, term, $('term-meta'), d.title);
+    else { term.innerHTML = ''; d.lines.forEach((l) => termLine(term, l)); $('term-meta').textContent = r.finished_ts ? 'finished' : ''; }
+  };
+
+  function bindRuns(actions) {
+    document.querySelectorAll('[data-run]').forEach((b) => {
+      const a = actions.find((x) => x.id === b.dataset.run);
+      if (a) b.onclick = () => run(a, b.closest('tr'));
+    });
+  }
+
+  /* ---------- page plumbing ---------- */
+  let page = null, data = null;
+  async function refresh() {
+    try {
+      const r = await fetch(`/api/view/${page}`);
+      if (!r.ok) return;
+      data = await r.json();
+      R[page](data);
+    } catch (e) { /* offline; the next tick tries again */ }
+  }
+  async function refreshNav() {
+    try {
+      const r = await fetch('/api/nav');
+      if (!r.ok) return;
+      const { nav, chips } = await r.json();
+      Object.entries(nav).forEach(([id, v]) => { const el = document.querySelector(`[data-nav="${id}"] .n`); if (el) { el.textContent = v.n; el.classList.toggle('warn', !!v.warn); } });
+      $('chips').innerHTML = Object.entries(chips).map(([n, c]) => `<span class="chip" data-chip="${n}"><span class="dot ${c.kind}"></span>${esc(c.text)}</span>`).join('');
+    } catch (e) { /* same */ }
+  }
+  function clock() { const el = $('clock'); if (el) el.textContent = new Date().toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+  function events() {
+    const src = new EventSource('/api/events');
+    src.addEventListener('attention', () => { refreshNav(); if (page === 'overview') refresh(); });
+    src.addEventListener('source', () => refreshNav());
+    src.addEventListener('run', () => { if (page === 'actions') refresh(); });
+    src.onerror = () => { src.close(); setTimeout(events, 15000); };
+  }
+  function init(name, renderer) {
+    page = name;
+    data = JSON.parse($('data').textContent);
+    R[renderer || name](data);
+    clock();
+    setInterval(clock, 30000);
+    if (!renderer) {
+      setInterval(refresh, (REFRESH[name] || 60) * 1000);
+      setInterval(refreshNav, 60000);
+    }
+    events();
+  }
+  return { init, run, refresh };
+})();

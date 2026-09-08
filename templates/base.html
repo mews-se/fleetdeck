@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} · {{ app_title }}</title>
+<meta name="confirm-token" content="{{ token }}">
+<link rel="stylesheet" href="/static/vendor/uplot/uPlot.min.css">
+<link rel="stylesheet" href="/static/css/fleetdeck.css">
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand">{{ app_title }}<small>{{ sites }}</small></div>
+    <nav aria-label="Sections">
+      {% for id, label, href in pages %}
+      <a href="{{ href }}" data-nav="{{ id }}"{% if id == page %} aria-current="page"{% endif %}><span>{{ label }}</span><span class="n{% if nav[id].warn %} warn{% endif %}">{{ nav[id].n }}</span></a>
+      {% endfor %}
+    </nav>
+    <div class="rail-foot" id="rail-foot">
+      <b>{{ app_title }} {{ version }}</b><br>
+      {% if unconfigured %}Not configured: {{ unconfigured|join(', ') }}<br>{% endif %}
+      <span id="clock"></span>
+    </div>
+  </aside>
+  <main>
+    <header class="topbar">
+      <h1>{{ title }}</h1>
+      <span class="chips" id="chips">
+        {% for name, chip in chips.items() %}
+        <span class="chip" data-chip="{{ name }}"><span class="dot {{ chip.kind }}"></span>{{ chip.text }}</span>
+        {% endfor %}
+      </span>
+    </header>
+    <section class="page">
+{% block content %}{% endblock %}
+    </section>
+  </main>
+</div>
+<script id="data" type="application/json">{{ data|tojson }}</script>
+<script src="/static/vendor/uplot/uPlot.min.js"></script>
+<script src="/static/js/fleetdeck.js"></script>
+<script>FD.init({{ page|tojson }}{% block init_args %}{% endblock %});</script>
+</body>
+</html>

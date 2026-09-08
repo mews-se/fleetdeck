@@ -9,6 +9,7 @@ def ssh_argv(host: Host, argv: list[str], key: str, known_hosts: str) -> list[st
     return [
         "ssh",
         "-i", key,
+        "-o", "IdentitiesOnly=yes",
         "-o", "BatchMode=yes",
         "-o", "StrictHostKeyChecking=yes",
         "-o", f"UserKnownHostsFile={known_hosts}",

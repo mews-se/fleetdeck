@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel">
+  <h3><span id="run-title"></span> <span class="meta" id="term-meta"></span></h3>
+  <dl class="kv" id="run-kv"></dl>
+</div>
+<div class="panel">
+  <h3>Output</h3>
+  <div class="term" id="term"></div>
+</div>
+<p class="note"><a href="/actions">← back to the catalog</a></p>
+{% endblock %}
+{% block init_args %}, "run"{% endblock %}

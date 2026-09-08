@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="stats" id="stats"></div>
+<div class="grid-2">
+  <div class="panel">
+    <h3>Needs attention <span class="meta" id="attn-meta"></span></h3>
+    <ul class="attn" id="attn"></ul>
+  </div>
+  <div class="stack">
+    <div class="panel" id="nas-panel" hidden>
+      <h3>NAS window <span class="meta" id="nas-meta"></span></h3>
+      <div class="window"><div class="track" id="nas-track"></div></div>
+      <div class="hours"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+      <dl class="kv" id="nas-kv"></dl>
+    </div>
+    <div class="panel">
+      <h3>WAN <span class="meta" id="wan-meta"></span></h3>
+      <div class="chart" id="wan-chart"></div>
+      <dl class="kv" id="wan-kv"></dl>
+    </div>
+  </div>
+</div>
+<div class="grid-3">
+  <div class="panel">
+    <h3>Upstream moved <span class="meta">GitHub · last 24 h</span></h3>
+    <ul class="attn" id="moved"></ul>
+  </div>
+  <div class="panel">
+    <h3>Quick actions <span class="meta">from the catalog</span></h3>
+    <div class="stack-sm" id="quick"></div>
+  </div>
+  <div class="panel">
+    <h3>Sources <span class="meta" id="sources-meta"></span></h3>
+    <div class="tw"><table id="sources-t"></table></div>
+  </div>
+</div>
+<div class="panel" id="term-panel" hidden>
+  <h3>Output <span class="meta" id="term-meta">idle</span></h3>
+  <div class="term" id="term"></div>
+</div>
+{% endblock %}
