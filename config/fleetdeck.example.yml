@@ -167,8 +167,10 @@ sources:
   kuma:     {url: http://10.0.0.6:3010, secret: kuma.key}
   adguard:  {url: http://10.0.0.19, secret: adguard.auth}
   speedtest:
-    home: {url: http://10.0.0.6:8765, secret: speedtest-home.token, site: home}
-    brk:  {url: http://10.0.1.11:8081, secret: speedtest-brk.token, site: brk}
+    home: {url: http://10.0.0.6:9091, secret: speedtest-home.token, site: home,
+           timezone: Europe/Stockholm}
+    brk:  {url: http://10.0.1.11:8081, secret: speedtest-brk.token, site: brk,
+           timezone: Europe/Stockholm}
 
 github:
   secret: github.token
