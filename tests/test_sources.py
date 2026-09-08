@@ -157,6 +157,7 @@ def test_kuma_parse():
     assert monitors["6"]["name"] == 'dellpi "ssh"' and monitors["6"]["rtt"] == 3
     assert monitors["6"]["state"] == "up" and monitors["6"]["url"] is None
     assert monitors["23"]["status"] == 3 and monitors["23"]["hostname"] == "10.0.0.100"
+    assert monitors["23"]["url"] is None
     assert monitors["40"]["state"] == "down" and monitors["40"]["port"] is None
 
 

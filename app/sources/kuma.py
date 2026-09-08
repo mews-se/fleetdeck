@@ -16,7 +16,8 @@ def _unescape(value: str) -> str:
 
 def _label(labels: dict, name: str):
     v = labels.get(name)
-    return None if v in (None, "", "null", "undefined") else v
+    # port monitors carry a bare scheme in monitor_url
+    return None if v in (None, "", "null", "undefined", "http://", "https://") else v
 
 
 def parse_metrics(text: str):
