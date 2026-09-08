@@ -117,6 +117,13 @@ async def test_pve(cfg, secrets):
     assert ctx.db.latest_sample("pve.brk.load") == (ctx.db.latest_sample("pve.brk.load")[0], 0.52)
 
 
+def test_label_version():
+    label = dockhand.VERSION_LABEL
+    assert dockhand.label_version({label: "v4.2.0"}) == "v4.2.0"
+    assert dockhand.label_version({label: "refs/tags/v4.2.0"}) == "v4.2.0"
+    assert dockhand.label_version({}) is None and dockhand.label_version(None) is None
+
+
 @pytest.mark.asyncio
 async def test_dockhand(cfg, secrets):
     def handler(request):
@@ -142,6 +149,7 @@ async def test_dockhand(cfg, secrets):
     snaps = {k: v for k, _, v in ctx.db.get_snapshots("dockhand")}
     assert snaps["1:docker-nginxproxymanager-app-1"]["image"] == "jc21/nginx-proxy-manager:2.15.1"
     assert snaps["4:uptime-kuma"]["state"] == "exited"
+    assert snaps["1:beszel"]["version"] == "0.19.0" and snaps["4:uptime-kuma"]["version"] is None
     assert not any(k.startswith("5:") for k in snaps)
     updates = ctx.db.get_snapshot("dockhand.updates", "updates:1")
     assert [u["name"] for u in updates["items"]] == ["beszel"]
@@ -243,7 +251,11 @@ async def test_github(cfg, secrets):
         return httpx.Response(404, json={})
 
     ctx = make_ctx(cfg, secrets, handler)
-    ctx.db.put_snapshot("dockhand", "1:beszel", {"image": "henrygd/beszel:0.19.0"})
+    ctx.db.put_snapshot("dockhand", "1:beszel", {"image": "henrygd/beszel", "version": "0.19.0"})
+    ctx.db.put_snapshot("dockhand", "1:docker-nginxproxymanager-app-1",
+                        {"image": "jc21/nginx-proxy-manager:latest", "version": None})
+    ctx.db.put_snapshot("dockhand", "4:teslamate-teslamate-1",
+                        {"image": "teslamate/teslamate:latest", "version": "v4.2.0"})
     ctx.db.put_snapshot("kuma", "app", {"version": "2.5.3"})
     ctx.db.put_snapshot("dockhand.system", "version", {"version": "1.0.46"})
     threads, releases = github.build(ctx)[0]
@@ -256,6 +268,8 @@ async def test_github(cfg, secrets):
     rel = {r["repo"]: r for r in ctx.db.releases()}
     assert rel["henrygd/beszel"]["latest_tag"] == "v0.19.1"
     assert rel["henrygd/beszel"]["running_version"] == "0.19.0"
+    assert rel["NginxProxyManager/nginx-proxy-manager"]["running_version"] is None
+    assert rel["teslamate-org/teslamate"]["running_version"] == "v4.2.0"
     assert rel["louislam/uptime-kuma"]["running_version"] == "2.5.3"
     assert rel["Finsys/dockhand"]["latest_tag"] == "1.0.46"
     assert rel["Finsys/dockhand"]["running_version"] == "1.0.46"
@@ -267,6 +281,9 @@ def test_image_tag():
     assert github.image_tag("localhost:5000/x/y") is None
     assert github.image_tag("nginx") is None
     assert github.image_tag(None) is None
+    assert github.tag_version("louislam/uptime-kuma:2") == "2"
+    assert github.tag_version("jc21/nginx-proxy-manager:latest") is None
+    assert github.tag_version("getgrav/grav:php8.3") == "php8.3"
 
 
 def test_attention_rules(cfg):

@@ -1,5 +1,6 @@
 [
- {"id":"c1","name":"beszel","image":"henrygd/beszel:0.19.0","state":"running","status":"Up 18 hours"},
+ {"id":"c1","name":"beszel","image":"henrygd/beszel","state":"running","status":"Up 18 hours",
+  "labels":{"org.opencontainers.image.version":"0.19.0","com.docker.compose.project":"docker-beszelhub"}},
  {"id":"c2","name":"/docker-nginxproxymanager-app-1","image":"jc21/nginx-proxy-manager:2.15.1","state":"running","status":"Up 18 hours (healthy)"},
- {"id":"c3","name":"uptime-kuma","image":"louislam/uptime-kuma:2","state":"exited","status":"Exited (0) 2 hours ago"}
+ {"id":"c3","name":"uptime-kuma","image":"louislam/uptime-kuma:2","state":"exited","status":"Exited (0) 2 hours ago","labels":{}}
 ]

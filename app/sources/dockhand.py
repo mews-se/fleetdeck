@@ -4,6 +4,8 @@ import httpx
 
 from app.sources import Context, Source, SourceError
 
+VERSION_LABEL = "org.opencontainers.image.version"
+
 
 class DockhandApi:
     def __init__(self, ctx: Context, endpoint):
@@ -114,6 +116,12 @@ class DockhandSystem(Source):
             raise SourceError("; ".join(errors))
 
 
+def label_version(labels: dict | None) -> str | None:
+    """The version an image declares about itself, or None."""
+    v = (labels or {}).get(VERSION_LABEL)
+    return v.removeprefix("refs/tags/") if v else None
+
+
 def parse_containers(env: int, host: str, items: list[dict]) -> dict[str, dict]:
     snaps = {}
     for it in items:
@@ -126,6 +134,7 @@ def parse_containers(env: int, host: str, items: list[dict]) -> dict[str, dict]:
             "id": it.get("id"),
             "name": name,
             "image": it.get("image"),
+            "version": label_version(it.get("labels")),
             "state": it.get("state"),
             "status": it.get("status"),
         }

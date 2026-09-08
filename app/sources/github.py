@@ -1,5 +1,7 @@
 """GitHub threads and releases with the user's read-only token."""
 
+import re
+
 import httpx
 
 from app.db import Database
@@ -33,14 +35,21 @@ def image_tag(image: str | None) -> str | None:
     return tag
 
 
+def tag_version(image: str | None) -> str | None:
+    """The image tag when it names a version; "latest" and friends say nothing."""
+    tag = image_tag(image)
+    return tag if tag and re.search(r"\d", tag) else None
+
+
 def resolve_running(db: Database, running_from: dict) -> tuple[str | None, str | None]:
     """The version we run, read from what the other sources stored."""
     if not running_from:
         return None, None
     kind, spec = next(iter(running_from.items()))
     if kind == "dockhand":
-        snap = db.get_snapshot("dockhand", f"{spec['env']}:{spec['container']}")
-        return image_tag((snap or {}).get("image")), f"dockhand env {spec['env']}"
+        snap = db.get_snapshot("dockhand", f"{spec['env']}:{spec['container']}") or {}
+        version = snap.get("version") or tag_version(snap.get("image"))
+        return version, f"dockhand env {spec['env']}"
     if kind == "kuma":
         return (db.get_snapshot("kuma", "app") or {}).get("version"), "kuma"
     if kind == "adguard":

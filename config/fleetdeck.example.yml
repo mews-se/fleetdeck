@@ -187,7 +187,7 @@ github:
     - {repo: louislam/uptime-kuma, running_from: {kuma: true}}
     - {repo: AdguardTeam/AdGuardHome, running_from: {adguard: true}}
     - {repo: Finsys/dockhand, running_from: {dockhand_version: true}}
-    - {repo: teslamate-org/teslamate, running_from: {dockhand: {env: 4, container: teslamate}}}
+    - {repo: teslamate-org/teslamate, running_from: {dockhand: {env: 4, container: teslamate-teslamate-1}}}
 
 links:
   pdm: https://10.0.0.181:8443
