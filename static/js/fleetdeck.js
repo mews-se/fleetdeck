@@ -229,9 +229,10 @@ const FD = (() => {
         <div class="hd"><b>${esc(g.host)}</b><span class="small">${esc(g.ip)}</span><span class="dim">${how}${extra}</span>
           <span class="links">${g.links.dockhand && g.env != null ? `<a href="${esc(g.links.dockhand)}" target="_blank" rel="noopener">Dockhand</a>` : ''}${g.off ? '<a href="/guests">guests</a>' : ''}</span></div>
         ${g.off ? `<div class="panel off">Host is shut down${g.guest_status ? ` (${esc(g.guest_status)})` : ''}. Nothing to show until it is started.</div>` :
+        g.env == null ? `<div class="panel off">Running, but not a Dockhand environment: its containers are not read yet.</div>` :
         g.containers.length ? `<div class="panel"><div class="tw"><table><tr><th>Container</th><th>Image</th><th>State</th><th>Status</th><th>Update</th></tr>
           ${g.containers.map((c) => `<tr><td><b>${esc(c.name)}</b></td><td class="mono">${esc(c.image || '')}</td><td>${statePill(c.state)}</td><td class="dim">${esc(c.status || '')}</td><td>${c.update ? pill('info', c.update) : ''}</td></tr>`).join('')}
-        </table></div></div>` : `<div class="panel off">No containers read yet${g.env == null ? '' : ' from this environment'}.</div>`}
+        </table></div></div>` : `<div class="panel off">No containers read yet from this environment.</div>`}
       </div>`;
     }).join('') || '<div class="panel empty">No Docker host configured.</div>';
   };
