@@ -1,4 +1,5 @@
 from app.views import State, link
+from app.views.actions import catalog, container_actions
 
 
 def groups(state: State) -> list[dict]:
@@ -20,6 +21,7 @@ def groups(state: State) -> list[dict]:
             guest_status = (g or {}).get("status")
         rows = []
         newer = {u["name"]: u for u in (updates.get(env) or {}).get("items") or []}
+        ops = container_actions(state, host.id) if env is not None else []
         for ts, c in containers.get(env, []):
             rows.append({
                 "name": c["name"],
@@ -29,6 +31,8 @@ def groups(state: State) -> list[dict]:
                 "update": (newer.get(c["name"]) or {}).get("newer") if c["name"] in newer
                 else None,
                 "ts": ts,
+                "actions": [{"id": o["id"], "op": o["op"], "policy": o["policy"]}
+                            for o in ops if o["container"] in (None, c["name"])],
             })
         rows.sort(key=lambda r: r["name"])
         system = systems.get(env) or {}
@@ -68,4 +72,9 @@ def counts(state: State) -> dict:
 
 
 def build(state: State) -> dict:
-    return {"groups": groups(state), "counts": counts(state), "ts": state.now}
+    return {
+        "groups": groups(state),
+        "counts": counts(state),
+        "actions": [a for a in catalog(state) if a["kind"] == "dockhand"],
+        "ts": state.now,
+    }

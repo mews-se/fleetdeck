@@ -142,6 +142,50 @@ async def test_pve_power_operation(cfg, secrets, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_dockhand_operation(cfg, secrets, tmp_path):
+    calls = []
+
+    def handler(request):
+        calls.append((request.url.path, dict(request.url.params),
+                      json.loads(request.content) if request.content else None))
+        assert request.headers["authorization"] == "Bearer token"
+        if request.url.path.endswith("/update"):
+            return httpx.Response(200, json={"success": True, "id": "deadbeefcafe0123"})
+        if "missing" in request.url.path:
+            return httpx.Response(404, text="Container not found")
+        return httpx.Response(200, json={"success": True})
+
+    ctx = make_ctx(cfg, secrets, handler)
+    ctx.db.put_snapshot("dockhand", "1:grav", {"id": "abc123", "image": "getgrav/grav:1.7"})
+    ctx.db.put_snapshot("dockhand", "5:npm", {"id": "missing1", "image": "npm"})
+    actions = catalog.load("config/catalog.example.yml", cfg)
+    restart = next(a for a in actions if a.id == "container-restart")
+    update = next(a for a in actions if a.id == "container-update")
+    runner = Runner(ctx, actions, tmp_path / "runs", EventBus(), local_argv)
+
+    run_id = await runner.start(restart, {"container": "grav"}, None, True, "dellpi")
+    lines = await drain(runner, run_id)
+    assert calls[-1] == ("/api/containers/abc123/restart", {"env": "1"}, None)
+    assert "restart grav: ok" in lines and lines[-1] == "exit 0"
+    assert ctx.db.run(run_id)["summary"] == "restart container grav"
+
+    run_id = await runner.start(update, {"container": "grav"}, None, True, "dellpi")
+    lines = await drain(runner, run_id)
+    assert calls[-1][0] == "/api/containers/abc123/update"
+    assert calls[-1][2] == {"image": "getgrav/grav:1.7", "repullImage": True,
+                            "startAfterUpdate": True}
+    assert any("new container id deadbeefcafe" in line for line in lines)
+
+    run_id = await runner.start(restart, {"container": "nope"}, None, True, "dellpi")
+    lines = await drain(runner, run_id)
+    assert "no container nope in Dockhand environment 1" in lines and lines[-1] == "exit 1"
+
+    run_id = await runner.start(restart, {"container": "npm"}, None, True, "dietpibrk")
+    lines = await drain(runner, run_id)
+    assert any(line.startswith("404:") for line in lines) and lines[-1] == "exit 1"
+
+
+@pytest.mark.asyncio
 async def test_pve_error_is_reported(cfg, secrets, tmp_path):
     def handler(request):
         return httpx.Response(403, text="Permission check failed")

@@ -17,6 +17,7 @@ import httpx
 from app.catalog import Action
 from app.events import EventBus
 from app.sources import Context
+from app.sources.dockhand import DockhandApi
 from app.sources.pve import PveApi
 
 log = logging.getLogger("fleetdeck.runner")
@@ -24,6 +25,7 @@ log = logging.getLogger("fleetdeck.runner")
 MAX_OUTPUT = 256 * 1024
 PVE_TASK_TIMEOUT = 180
 SSH_TIMEOUT = 900
+DOCKHAND_TIMEOUT = 600
 END = None
 
 
@@ -54,6 +56,7 @@ class Runner:
             raise ValueError(f"{target} is not a target of {action.id}")
         filled = action.fill(params)
         argv = action.argv(filled) if action.kind == "ssh" else []
+        container = action.container(filled) if action.kind == "dockhand" else None
         output_file = ""
         run_id = self.ctx.db.new_run(
             action.id, target, action.summary(filled), requested_by, confirmed, output_file
@@ -62,7 +65,9 @@ class Runner:
         self.ctx.db.set_run_output(run_id, output_file)
         self.live[run_id] = []
         self.subscribers[run_id] = set()
-        task = asyncio.create_task(self._execute(run_id, action, target, argv, output_file))
+        task = asyncio.create_task(
+            self._execute(run_id, action, target, argv, container, output_file)
+        )
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
         self.events.publish("run", {"id": run_id, "action": action.id, "state": "started"})
@@ -86,7 +91,7 @@ class Runner:
             return []
 
     async def _execute(self, run_id: int, action: Action, target: str, argv: list[str],
-                       output_file: str):
+                       container: str | None, output_file: str):
         lock = self.locks.setdefault(target, asyncio.Lock())
         code = 1
         written = 0
@@ -115,6 +120,8 @@ class Runner:
             async with lock:
                 if action.kind == "pve":
                     code = await self._run_pve(action, emit)
+                elif action.kind == "dockhand":
+                    code = await self._run_dockhand(action, target, container or "", emit)
                 else:
                     code = await self._run_ssh(target, argv, emit)
         except asyncio.CancelledError:
@@ -155,6 +162,40 @@ class Runner:
             proc.kill()
             emit(f"killed after {SSH_TIMEOUT} s")
             return 124
+
+    async def _run_dockhand(self, action: Action, target: str, container: str, emit) -> int:
+        host = self.ctx.config.hosts[target]
+        endpoint = self.ctx.config.sources.get("dockhand")
+        if endpoint is None:
+            emit("dockhand is not configured")
+            return 1
+        env = host.dockhand_env
+        snap = self.ctx.db.get_snapshot("dockhand", f"{env}:{container}")
+        if not snap or not snap.get("id"):
+            emit(f"no container {container} in Dockhand environment {env}")
+            return 1
+        op = action.run["op"]
+        path = f"/api/containers/{snap['id']}/{op}"
+        emit(f"POST {endpoint.url}{path}?env={env}")
+        body = None
+        if op == "update":
+            body = {"image": snap.get("image"), "repullImage": True, "startAfterUpdate": True}
+        try:
+            data = await DockhandApi(self.ctx, endpoint).post(
+                path, body, timeout=DOCKHAND_TIMEOUT, env=env
+            )
+        except httpx.HTTPStatusError as e:
+            emit(f"{e.response.status_code}: {e.response.text.strip()[:300]}")
+            return 1
+        except httpx.HTTPError as e:
+            emit(f"error: {e}")
+            return 1
+        data = data if isinstance(data, dict) else {}
+        ok = bool(data.get("success"))
+        new_id = data.get("id")
+        emit(f"{op} {container}: {'ok' if ok else 'failed'}"
+             + (f" · new container id {str(new_id)[:12]}" if new_id else ""))
+        return 0 if ok else 1
 
     async def _run_pve(self, action: Action, emit) -> int:
         host = self.ctx.config.hosts[action.target]

@@ -1,4 +1,22 @@
+from app.catalog import PLACEHOLDER_RE
 from app.views import State, link
+
+
+def container_actions(state: State, host_id: str) -> list[dict]:
+    """Dockhand entries that may target the host, each with the container it
+    names or None when the name is a parameter."""
+    out = []
+    for a in state.actions:
+        if a.kind != "dockhand" or host_id not in a.targets:
+            continue
+        name = a.run["container"]
+        out.append({
+            "id": a.id,
+            "op": a.run["op"],
+            "policy": a.policy,
+            "container": None if PLACEHOLDER_RE.search(name) else name,
+        })
+    return out
 
 
 def catalog(state: State) -> list[dict]:

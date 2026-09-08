@@ -18,6 +18,14 @@ class DockhandApi:
         r.raise_for_status()
         return r.json()
 
+    async def post(self, path: str, json=None, timeout: float | None = None, **params):
+        r = await self.http.post(
+            self.url + path, params=params or None, json=json, headers=self.headers,
+            timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
+        )
+        r.raise_for_status()
+        return r.json() if r.content else {}
+
 
 def _envs(ctx: Context) -> list[tuple[int, str]]:
     return sorted(

@@ -79,7 +79,7 @@ const FD = (() => {
       const exit = JSON.parse(e.data).exit;
       if (meta) meta.textContent = `${label} · run #${runId} · ${exit === 0 ? 'done' : 'exit ' + exit}`;
       refreshNav();
-      if (page === 'actions' || page === 'guests') refresh();
+      if (page === 'actions' || page === 'guests' || page === 'containers') refresh();
     });
     es.onerror = () => { if (es) { es.close(); es = null; } };
   }
@@ -229,6 +229,11 @@ const FD = (() => {
     bindRuns(d.pves.flatMap((p) => p.guests.flatMap((g) => Object.entries(g.actions || {}).map(([op, id]) => ({ id, title: `${op === 'start' ? 'Start' : op === 'shutdown' ? 'Shut down' : op} ${g.type} ${g.vmid}`, target: p.host, policy: 'free', summary: `${op} ${g.vmid}` })))));
   };
 
+  /* which container operations make sense in the row's current state */
+  const opFits = (op, c) => ({ restart: c.state === 'running', stop: c.state === 'running', start: c.state !== 'running', update: !!c.update })[op] ?? true;
+  const opButtons = (host, c) => (c.actions || []).filter((x) => opFits(x.op, c))
+    .map((x) => `<button class="btn sm" data-run="${esc(x.id)}" data-target="${esc(host)}" data-container="${esc(c.name)}">${esc(x.op[0].toUpperCase() + x.op.slice(1))}${x.policy === 'confirm' ? '…' : ''}</button>`).join(' ');
+
   R.containers = (d) => {
     $('groups').innerHTML = d.groups.map((g) => {
       const sys = g.system;
@@ -239,11 +244,12 @@ const FD = (() => {
           <span class="links">${g.links.dockhand && g.env != null ? `<a href="${esc(g.links.dockhand)}" target="_blank" rel="noopener">Dockhand</a>` : ''}${g.off ? '<a href="/guests">guests</a>' : ''}</span></div>
         ${g.off ? `<div class="panel off">Host is shut down${g.guest_status ? ` (${esc(g.guest_status)})` : ''}. Nothing to show until it is started.</div>` :
         g.env == null ? `<div class="panel off">Running, but not a Dockhand environment: its containers are not read yet.</div>` :
-        g.containers.length ? `<div class="panel"><div class="tw"><table><tr><th>Container</th><th>Image</th><th>State</th><th>Status</th><th>Update</th></tr>
-          ${g.containers.map((c) => `<tr><td><b>${esc(c.name)}</b></td><td class="mono">${esc(c.image || '')}</td><td>${statePill(c.state)}</td><td class="dim">${esc(c.status || '')}</td><td>${c.update ? pill('info', c.update) : ''}</td></tr>`).join('')}
+        g.containers.length ? `<div class="panel"><div class="tw"><table><tr><th>Container</th><th>Image</th><th>State</th><th>Status</th><th>Update</th><th></th></tr>
+          ${g.containers.map((c) => `<tr><td><b>${esc(c.name)}</b></td><td class="mono">${esc(c.image || '')}</td><td>${statePill(c.state)}</td><td class="dim">${esc(c.status || '')}</td><td>${c.update ? pill('info', c.update) : ''}</td><td class="r">${opButtons(g.host, c)}</td></tr>`).join('')}
         </table></div></div>` : `<div class="panel off">No containers read yet from this environment.</div>`}
       </div>`;
     }).join('') || '<div class="panel empty">No Docker host configured.</div>';
+    bindRuns(d.actions || []);
   };
 
   R.network = (d) => {
@@ -303,7 +309,7 @@ const FD = (() => {
   function bindRuns(actions) {
     document.querySelectorAll('[data-run]').forEach((b) => {
       const a = actions.find((x) => x.id === b.dataset.run);
-      if (a) b.onclick = () => run(a, b.closest('tr'), { target: b.dataset.target });
+      if (a) b.onclick = () => run(a, b.closest('tr'), { target: b.dataset.target, params: b.dataset.container ? { container: b.dataset.container } : undefined });
     });
   }
 

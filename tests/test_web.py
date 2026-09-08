@@ -126,6 +126,22 @@ def test_confirm_action_needs_token(client):
     read_stream(client, r.json()["run_id"])
 
 
+def test_container_rows_carry_their_operations(client):
+    db = client.app.state.console.db
+    db.put_snapshot("dockhand", "1:grav", {"env": 1, "host": "dellpi", "id": "abc",
+                                           "name": "grav", "image": "grav", "state": "running",
+                                           "status": "Up"})
+    d = client.get("/api/view/containers").json()
+    dellpi = next(g for g in d["groups"] if g["host"] == "dellpi")
+    ops = {a["op"] for a in dellpi["containers"][0]["actions"]}
+    assert ops == {"restart", "update"}
+    assert {a["id"] for a in d["actions"]} == {"container-restart", "container-update"}
+    r = client.post("/api/actions/container-restart/run", headers=SAME,
+                    json={"params": {"container": "-x"}, "target": "dellpi",
+                          "token": client.get("/api/token", headers=SAME).json()["token"]})
+    assert r.status_code == 400
+
+
 def test_bad_requests(client):
     assert client.post("/api/actions/nope/run", headers=SAME, json={}).status_code == 404
     r = client.post("/api/actions/seeda-status/run", headers=SAME,

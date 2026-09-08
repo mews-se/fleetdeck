@@ -16,7 +16,9 @@ from app.config import ID_RE, Config, ConfigError, Host
 POLICIES = ("read", "free", "confirm")
 PVE_OPS = ("start", "shutdown", "stop", "reboot")
 PVE_TYPES = ("qemu", "lxc")
+DOCKHAND_OPS = ("start", "stop", "restart", "update")
 PLACEHOLDER_RE = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
+CONTAINER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 # Never a catalog operation, whatever the policy says.
 FORBIDDEN = [
@@ -69,9 +71,19 @@ class Action:
         filled = self.fill(values)
         return [PLACEHOLDER_RE.sub(lambda m: filled[m.group(1)], arg) for arg in self.run]
 
+    def container(self, values: dict[str, str] | None = None) -> str:
+        filled = self.fill(values)
+        name = PLACEHOLDER_RE.sub(lambda m: filled[m.group(1)], self.run["container"])
+        if not CONTAINER_RE.fullmatch(name):
+            raise ValueError(f"{name} is not a container name")
+        return name
+
     def summary(self, values: dict[str, str] | None = None) -> str:
         if self.kind == "pve":
             return f"{self.run['op']} {self.run['type']} {self.run['vmid']}"
+        if self.kind == "dockhand":
+            name = self.container(values) if values is not None else self.run["container"]
+            return f"{self.run['op']} container {name}"
         return " ".join(self.argv(values) if values is not None else self.run)
 
 
@@ -170,13 +182,33 @@ def _parse_action(i: int, raw, config: Config) -> Action:
         return Action(id_, title, targets, "pve", policy, dict(vmid=vmid, type=vtype, op=op),
                       note=note)
 
-    if kind != "ssh":
-        raise ConfigError(f"{where}: kind must be pve or ssh")
+    if kind not in ("ssh", "dockhand"):
+        raise ConfigError(f"{where}: kind must be pve, ssh or dockhand")
+    for host in hosts:
+        if host.rule == "prod" and policy == "free":
+            raise ConfigError(f"{where}: {host.id} is production, policy: free is not allowed")
+
+    if kind == "dockhand":
+        for host in hosts:
+            if host.dockhand_env is None:
+                raise ConfigError(f"{where}: {host.id} is not a Dockhand environment")
+        run = raw.get("run")
+        if not isinstance(run, dict):
+            raise ConfigError(f"{where}: run must be a mapping with op and container")
+        op, container = run.get("op"), run.get("container")
+        if op not in DOCKHAND_OPS:
+            raise ConfigError(f"{where}: run.op must be one of {', '.join(DOCKHAND_OPS)}")
+        if not isinstance(container, str) or not container:
+            raise ConfigError(f"{where}: run.container is required")
+        if policy == "read":
+            raise ConfigError(f"{where}: a container operation cannot have policy: read")
+        params = _params(raw, where, set(PLACEHOLDER_RE.findall(container)))
+        return Action(id_, title, targets, "dockhand", policy, dict(op=op, container=container),
+                      params, note)
+
     for host in hosts:
         if not host.ssh:
             raise ConfigError(f"{where}: {host.id} has no ssh address")
-        if host.rule == "prod" and policy == "free":
-            raise ConfigError(f"{where}: {host.id} is production, policy: free is not allowed")
     run = raw.get("run")
     if (
         not isinstance(run, list)

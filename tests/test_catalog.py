@@ -90,6 +90,42 @@ def test_rejects(cfg, kw, message):
         catalog.parse([entry(**kw)], cfg)
 
 
+def dh(**kw):
+    base = dict(target="dellpi", kind="dockhand", policy="confirm",
+                run={"op": "restart", "container": "{container}"},
+                params={"container": {"pattern": "[a-z0-9_.-]+", "default": "grav"}})
+    base.update(kw)
+    return entry(**base)
+
+
+def test_dockhand_kind(cfg):
+    a = catalog.parse([dh()], cfg)[0]
+    assert a.kind == "dockhand" and a.container({"container": "beszel"}) == "beszel"
+    assert a.summary() == "restart container {container}"
+    assert a.summary({"container": "beszel"}) == "restart container beszel"
+    with pytest.raises(ValueError):
+        a.container({"container": "-bad"})
+    fixed = catalog.parse([dh(run={"op": "update", "container": "grav"}, params=None)], cfg)[0]
+    assert fixed.container() == "grav" and fixed.summary() == "update container grav"
+
+
+@pytest.mark.parametrize(
+    "kw, message",
+    [
+        (dict(policy="read"), "policy: read"),
+        (dict(policy="free"), "production"),
+        (dict(target="testpi5"), "not a Dockhand environment"),
+        (dict(run={"op": "exec", "container": "grav"}, params=None), "run.op"),
+        (dict(run={"op": "restart"}, params=None), "run.container"),
+        (dict(run=["docker", "restart"], params=None), "run must be a mapping"),
+        (dict(params=None), "no params entry"),
+    ],
+)
+def test_dockhand_rejects(cfg, kw, message):
+    with pytest.raises(ConfigError, match=message):
+        catalog.parse([dh(**kw)], cfg)
+
+
 def test_duplicate_ids(cfg):
     with pytest.raises(ConfigError, match="duplicate"):
         catalog.parse([entry(), entry()], cfg)

@@ -26,6 +26,26 @@
   run: ["docker", "ps"]
   policy: read
 
+# Container operations go through Dockhand's API; the Containers page shows
+# them as buttons on every row of the environments listed here.
+- id: container-restart
+  title: Restart container
+  targets: [dellpi, teslamate, dietpibrk]
+  kind: dockhand
+  run: {op: restart, container: "{container}"}
+  params:
+    container: {pattern: "[a-z0-9][a-z0-9_.-]*", default: "grav"}
+  policy: confirm
+
+- id: container-update
+  title: Update container
+  targets: [dellpi, teslamate, dietpibrk]
+  kind: dockhand
+  run: {op: update, container: "{container}"}
+  params:
+    container: {pattern: "[a-z0-9][a-z0-9_.-]*", default: "grav"}
+  policy: confirm
+
 - id: start-vm-904
   title: Start VM 904
   target: proxmox
