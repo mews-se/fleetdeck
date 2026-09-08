@@ -61,10 +61,10 @@ def test_health_and_nav(client):
 
 
 def test_post_needs_same_origin(client):
-    assert client.post("/api/actions/uptime-904/run").status_code == 403
-    assert client.post("/api/actions/uptime-904/run",
+    assert client.post("/api/actions/uptime/run").status_code == 403
+    assert client.post("/api/actions/uptime/run",
                        headers={"Origin": "http://evil", "Host": "console"}).status_code == 403
-    r = client.post("/api/actions/uptime-904/run",
+    r = client.post("/api/actions/uptime/run",
                     headers={"Origin": "http://console:8310", "Host": "console:8310"})
     assert r.status_code == 202
     assert client.get("/api/token").status_code == 403
@@ -88,7 +88,7 @@ def read_stream(client, run_id):
 
 
 def test_free_action_runs_and_streams(client):
-    r = client.post("/api/actions/uptime-904/run", headers=SAME, json={})
+    r = client.post("/api/actions/uptime/run", headers=SAME, json={"target": "testdebug"})
     assert r.status_code == 202
     run_id = r.json()["run_id"]
     lines, exit_code = read_stream(client, run_id)
@@ -98,7 +98,15 @@ def test_free_action_runs_and_streams(client):
     assert client.get("/actions/runs/999").status_code == 404
     runs = client.get("/api/view/actions").json()["runs"]
     assert runs[0]["id"] == run_id and runs[0]["exit_code"] == 0
+    assert runs[0]["target"] == "testdebug"
     assert client.get("/api/health").json()["running"] == []
+    assert client.post("/api/actions/uptime/run", headers=SAME,
+                       json={"target": "nas"}).status_code == 400
+    assert client.post("/api/actions/uptime/run", headers=SAME,
+                       json={"target": 5}).status_code == 400
+    catalog = client.get("/api/view/actions").json()["actions"]
+    uptime = next(a for a in catalog if a["id"] == "uptime")
+    assert uptime["target_label"].endswith("hosts") and len(uptime["targets"]) > 1
 
 
 def test_confirm_action_needs_token(client):

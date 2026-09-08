@@ -72,6 +72,30 @@ async def test_bad_param_rejected(cfg, secrets, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_target_is_chosen_per_run(cfg, secrets, tmp_path):
+    ctx = make_ctx(cfg, secrets)
+    actions = catalog.parse([
+        {"id": "where", "title": "w", "targets": ["testdebug", "testdebugbrk"], "kind": "ssh",
+         "run": ["echo", "here"], "policy": "free"},
+    ], cfg)
+    seen = []
+
+    def argv(host, argv):
+        seen.append(host.id)
+        return argv
+
+    runner = Runner(ctx, actions, tmp_path / "runs", EventBus(), argv)
+    a = await runner.start(actions[0], None, None, False, "testdebugbrk")
+    b = await runner.start(actions[0], None, None, False)
+    await drain(runner, a)
+    await drain(runner, b)
+    assert seen == ["testdebugbrk", "testdebug"]
+    assert ctx.db.run(a)["target"] == "testdebugbrk" and ctx.db.run(b)["target"] == "testdebug"
+    with pytest.raises(ValueError):
+        await runner.start(actions[0], None, None, False, "dellpi")
+
+
+@pytest.mark.asyncio
 async def test_runs_serialise_per_target(cfg, secrets, tmp_path):
     ctx = make_ctx(cfg, secrets)
     actions = catalog.parse([

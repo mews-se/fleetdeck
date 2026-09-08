@@ -52,8 +52,9 @@ def build(state: State) -> dict:
     nas_status = None
     if nas_host and nas_host.beszel:
         nas_status = (db.get_snapshot("beszel", f"system:{nas_host.beszel}") or {}).get("status")
-    quick = [a for a in state.actions if a.policy == "free"][:4]
-    quick += [a for a in state.actions if a.policy == "read"][:2]
+    single = [a for a in state.actions if len(a.targets) == 1]
+    quick = [a for a in single if a.policy == "free"][:4]
+    quick += [a for a in single if a.policy == "read"][:2]
     return {
         "stats": stats(state, h, g, c, k, ag, st),
         "attention": attention,

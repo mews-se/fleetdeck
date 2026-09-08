@@ -1,6 +1,30 @@
 # Copy to catalog.yml. Every entry is checked against the hosts' rule when the
 # app starts: read-only hosts take only read entries, production hosts never
 # take free ones, and PVE power operations must name a guest in free_guests.
+# An entry with targets: runs on the host picked in the UI.
+
+- id: uptime
+  title: Uptime and load
+  targets: [dellpi, proxmox, teslamate, testpi5, kodipi5, testpi, pizerow, testdebug,
+            brkpi5, proxbrk, dietpibrk, testdebugbrk]
+  kind: ssh
+  run: ["uptime"]
+  policy: read
+
+- id: disk-usage
+  title: Disk usage
+  targets: [dellpi, proxmox, teslamate, testpi5, kodipi5, testpi, pizerow, testdebug,
+            brkpi5, proxbrk, dietpibrk, testdebugbrk]
+  kind: ssh
+  run: ["df", "-h", "-x", "tmpfs", "-x", "devtmpfs", "-x", "overlay"]
+  policy: read
+
+- id: docker-ps
+  title: Running containers
+  targets: [dellpi, teslamate, dietpibrk, testdebug, testdebugbrk]
+  kind: ssh
+  run: ["docker", "ps"]
+  policy: read
 
 - id: start-vm-904
   title: Start VM 904
@@ -76,10 +100,3 @@
   kind: ssh
   run: ["docker", "system", "prune", "-f"]
   policy: free
-
-- id: uptime-904
-  title: Uptime and load on 904
-  target: testdebug
-  kind: ssh
-  run: ["uptime"]
-  policy: read

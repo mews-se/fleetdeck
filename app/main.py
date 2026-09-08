@@ -263,6 +263,9 @@ def create_app(settings: Settings | None = None, run_scheduler: bool = True) -> 
         params = body.get("params") or {}
         if not isinstance(params, dict) or any(not isinstance(v, str) for v in params.values()):
             raise HTTPException(status_code=400, detail="params must map names to strings")
+        target = body.get("target")
+        if target is not None and not isinstance(target, str):
+            raise HTTPException(status_code=400, detail="target must be a host id")
         confirmed = False
         if action.policy == "confirm":
             if not console.consume_token(body.get("token")):
@@ -270,7 +273,8 @@ def create_app(settings: Settings | None = None, run_scheduler: bool = True) -> 
             confirmed = True
         try:
             run_id = await console.runner.start(
-                action, params, request.client.host if request.client else None, confirmed
+                action, params, request.client.host if request.client else None, confirmed,
+                target,
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None

@@ -8,11 +8,15 @@ def catalog(state: State) -> list[dict]:
     for a in state.actions:
         host = config.hosts[a.target]
         run = last.get(a.id)
+        targets = [{"id": t, "label": f"{t} · {config.sites[config.hosts[t].site].name}",
+                    "rule": config.hosts[t].rule} for t in a.targets]
         out.append({
             "id": a.id,
             "title": a.title,
             "target": a.target,
-            "target_label": f"{a.target} · {config.sites[host.site].name}",
+            "targets": targets,
+            "target_label": targets[0]["label"] if len(targets) == 1
+            else f"{len(targets)} hosts",
             "rule": host.rule,
             "kind": a.kind,
             "policy": a.policy,

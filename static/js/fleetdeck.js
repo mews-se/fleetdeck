@@ -89,19 +89,23 @@ const FD = (() => {
       if (r.ok) document.querySelector('meta[name=confirm-token]').content = (await r.json()).token;
     } catch (e) { /* the next page load issues a new one */ }
   }
-  async function run(a, row) {
+  async function run(a, row, extra = {}) {
     const term = $('term'), meta = $('term-meta'), panel = $('term-panel');
     if (panel) panel.hidden = false;
+    const sel = row && row.querySelector('select[data-target]');
+    const target = extra.target || (sel ? sel.value : a.target);
+    const params = { ...(extra.params || {}) };
+    if (row) row.querySelectorAll('input[data-param]').forEach((i) => { if (!(i.dataset.param in params)) params[i.dataset.param] = i.value; });
+    const what = Object.values(params).length ? ` (${Object.values(params).join(', ')})` : '';
+    const summary = a.summary.replace(/\{([a-z_][a-z0-9_]*)\}/g, (m, k) => params[k] ?? m);
     let token = null;
     if (a.policy === 'confirm') {
-      if (!confirm(`${a.title} on ${a.target}?\n\n${a.summary}\n\nThis target is production. Run it?`)) return;
+      if (!confirm(`${a.title}${what} on ${target}?\n\n${summary}\n\nThis target is production. Run it?`)) return;
       token = document.querySelector('meta[name=confirm-token]').content;
     }
-    const params = {};
-    if (row) row.querySelectorAll('input[data-param]').forEach((i) => { params[i.dataset.param] = i.value; });
     let r;
     try {
-      r = await fetch(`/api/actions/${a.id}/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ params, token }) });
+      r = await fetch(`/api/actions/${a.id}/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ params, token, target }) });
     } catch (e) { term.innerHTML = ''; termLine(term, `error: ${e}`); return; }
     if (token) refreshToken();
     if (!r.ok) {
@@ -111,8 +115,11 @@ const FD = (() => {
       return;
     }
     const { run_id } = await r.json();
-    stream(run_id, term, meta, `${a.title} · ${a.target}`);
+    stream(run_id, term, meta, `${a.title} · ${target}`);
   }
+  const targetCell = (a) => a.targets && a.targets.length > 1
+    ? `<select data-target>${a.targets.map((t) => `<option value="${esc(t.id)}">${esc(t.label)}</option>`).join('')}</select>`
+    : esc(a.target_label);
 
   /* ---------- renderers ---------- */
   const R = {};
@@ -275,7 +282,7 @@ const FD = (() => {
   R.actions = (d) => {
     if (changed('catalog', d.actions)) {
       $('act-t').innerHTML = `<tr><th>Action</th><th>Target</th><th>Policy</th><th class="num">Last</th><th></th></tr>` +
-      (d.actions.length ? d.actions.map((a) => `<tr data-action="${esc(a.id)}"><td><b>${esc(a.title)}</b><br><span class="small">${esc(a.summary)}</span>${a.params.map((p) => ` <label class="small">${esc(p.name)} <input data-param="${esc(p.name)}" value="${esc(p.default)}" pattern="${esc(p.pattern)}"></label>`).join('')}${a.note ? `<br><span class="dim">${esc(a.note)}</span>` : ''}</td><td class="sub">${esc(a.target_label)}</td><td>${pill(a.policy, a.policy)}</td><td class="num dim">${a.last ? `<a href="/actions/runs/${a.last.id}" title="exit ${a.last.exit}">${age(a.last.ts)}</a>${a.last.exit === 0 ? '' : a.last.exit == null ? ' ⋯' : ' ✗'}` : '—'}</td><td class="r"><button class="btn sm ${a.policy === 'free' ? 'primary' : ''}" data-run="${esc(a.id)}">${a.policy === 'confirm' ? 'Run…' : 'Run'}</button></td></tr>`).join('') : '<tr><td colspan="5" class="empty">The catalog is empty. Add entries to config/catalog.yml.</td></tr>');
+      (d.actions.length ? d.actions.map((a) => `<tr data-action="${esc(a.id)}"><td><b>${esc(a.title)}</b><br><span class="small">${esc(a.summary)}</span>${a.params.map((p) => ` <label class="small">${esc(p.name)} <input data-param="${esc(p.name)}" value="${esc(p.default)}" pattern="${esc(p.pattern)}"></label>`).join('')}${a.note ? `<br><span class="dim">${esc(a.note)}</span>` : ''}</td><td class="sub">${targetCell(a)}</td><td>${pill(a.policy, a.policy)}</td><td class="num dim">${a.last ? `<a href="/actions/runs/${a.last.id}" title="exit ${a.last.exit}">${age(a.last.ts)}</a>${a.last.exit === 0 ? '' : a.last.exit == null ? ' ⋯' : ' ✗'}` : '—'}</td><td class="r"><button class="btn sm ${a.policy === 'free' ? 'primary' : ''}" data-run="${esc(a.id)}">${a.policy === 'confirm' ? 'Run…' : 'Run'}</button></td></tr>`).join('') : '<tr><td colspan="5" class="empty">The catalog is empty. Add entries to config/catalog.yml.</td></tr>');
       bindRuns(d.actions);
     }
     $('runs-meta').textContent = d.running.length ? `${d.running.length} running` : '';
@@ -296,7 +303,7 @@ const FD = (() => {
   function bindRuns(actions) {
     document.querySelectorAll('[data-run]').forEach((b) => {
       const a = actions.find((x) => x.id === b.dataset.run);
-      if (a) b.onclick = () => run(a, b.closest('tr'));
+      if (a) b.onclick = () => run(a, b.closest('tr'), { target: b.dataset.target });
     });
   }
 

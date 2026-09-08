@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 
 import yaml
 
-from app.config import ID_RE, Config, ConfigError
+from app.config import ID_RE, Config, ConfigError, Host
 
 POLICIES = ("read", "free", "confirm")
 PVE_OPS = ("start", "shutdown", "stop", "reboot")
@@ -43,14 +43,19 @@ class Param:
 class Action:
     id: str
     title: str
-    target: str
+    targets: list[str]
     kind: str
     policy: str
     run: list[str] | dict
     params: dict[str, Param] = field(default_factory=dict)
     note: str = ""
 
-    def argv(self, values: dict[str, str] | None = None) -> list[str]:
+    @property
+    def target(self) -> str:
+        return self.targets[0]
+
+    def fill(self, values: dict[str, str] | None = None) -> dict[str, str]:
+        """Every parameter with its value, each checked against its pattern."""
         values = values or {}
         filled = {}
         for name, p in self.params.items():
@@ -58,15 +63,60 @@ class Action:
             if not isinstance(value, str) or not p.pattern.fullmatch(value):
                 raise ValueError(f"parameter {name} does not match its pattern")
             filled[name] = value
-        out = []
-        for arg in self.run:
-            out.append(PLACEHOLDER_RE.sub(lambda m: filled[m.group(1)], arg))
-        return out
+        return filled
 
-    def summary(self) -> str:
+    def argv(self, values: dict[str, str] | None = None) -> list[str]:
+        filled = self.fill(values)
+        return [PLACEHOLDER_RE.sub(lambda m: filled[m.group(1)], arg) for arg in self.run]
+
+    def summary(self, values: dict[str, str] | None = None) -> str:
         if self.kind == "pve":
             return f"{self.run['op']} {self.run['type']} {self.run['vmid']}"
-        return " ".join(self.run)
+        return " ".join(self.argv(values) if values is not None else self.run)
+
+
+def _targets(raw: dict, where: str, config: Config) -> list[Host]:
+    if "target" in raw and "targets" in raw:
+        raise ConfigError(f"{where}: give target or targets, not both")
+    targets = raw.get("targets", [raw.get("target")])
+    if (
+        not isinstance(targets, list)
+        or not targets
+        or any(not isinstance(t, str) for t in targets)
+    ):
+        raise ConfigError(f"{where}: targets must be a non-empty list of host ids")
+    if len(set(targets)) != len(targets):
+        raise ConfigError(f"{where}: a target is listed twice")
+    hosts = []
+    for t in targets:
+        host = config.hosts.get(t)
+        if host is None:
+            raise ConfigError(f"{where}: unknown target '{t}'")
+        hosts.append(host)
+    return hosts
+
+
+def _params(raw: dict, where: str, used: set[str]) -> dict[str, Param]:
+    params = {}
+    for name, p in (raw.get("params") or {}).items():
+        pw = f"{where}.params.{name}"
+        if not re.fullmatch(r"[a-z_][a-z0-9_]*", str(name)):
+            raise ConfigError(f"{pw}: bad parameter name")
+        if not isinstance(p, dict):
+            raise ConfigError(f"{pw}: expected pattern and default")
+        try:
+            pattern = re.compile(str(p.get("pattern", "")))
+        except re.error as e:
+            raise ConfigError(f"{pw}: bad pattern ({e})") from None
+        default = p.get("default")
+        if not isinstance(default, str) or not pattern.fullmatch(default):
+            raise ConfigError(f"{pw}: default must be a string matching the pattern")
+        params[name] = Param(name, pattern, default)
+    for name in used - set(params):
+        raise ConfigError(f"{where}: placeholder {{{name}}} has no params entry")
+    for name in set(params) - used:
+        raise ConfigError(f"{where}: params.{name} is not used in run")
+    return params
 
 
 def _parse_action(i: int, raw, config: Config) -> Action:
@@ -83,12 +133,11 @@ def _parse_action(i: int, raw, config: Config) -> Action:
     policy = raw.get("policy")
     if policy not in POLICIES:
         raise ConfigError(f"{where}: policy must be one of {', '.join(POLICIES)}")
-    target = raw.get("target")
-    host = config.hosts.get(target) if isinstance(target, str) else None
-    if host is None:
-        raise ConfigError(f"{where}: unknown target '{target}'")
-    if host.rule == "readonly" and policy != "read":
-        raise ConfigError(f"{where}: {host.id} is read-only, only policy: read is allowed")
+    hosts = _targets(raw, where, config)
+    targets = [h.id for h in hosts]
+    for host in hosts:
+        if host.rule == "readonly" and policy != "read":
+            raise ConfigError(f"{where}: {host.id} is read-only, only policy: read is allowed")
     kind = raw.get("kind")
     note = raw.get("note", "")
     if not isinstance(note, str):
@@ -97,6 +146,9 @@ def _parse_action(i: int, raw, config: Config) -> Action:
     # A power operation on a free guest is free even though the PVE host is
     # production; free_guests is the gate, not the host rule.
     if kind == "pve":
+        if len(hosts) != 1:
+            raise ConfigError(f"{where}: a pve action takes one target")
+        host = hosts[0]
         if not host.pve:
             raise ConfigError(f"{where}: {host.id} is not a PVE host")
         run = raw.get("run")
@@ -115,15 +167,16 @@ def _parse_action(i: int, raw, config: Config) -> Action:
             raise ConfigError(f"{where}: a power operation cannot have policy: read")
         if raw.get("params"):
             raise ConfigError(f"{where}: pve actions take no params")
-        return Action(id_, title, host.id, "pve", policy, dict(vmid=vmid, type=vtype, op=op),
+        return Action(id_, title, targets, "pve", policy, dict(vmid=vmid, type=vtype, op=op),
                       note=note)
 
     if kind != "ssh":
         raise ConfigError(f"{where}: kind must be pve or ssh")
-    if not host.ssh:
-        raise ConfigError(f"{where}: {host.id} has no ssh address")
-    if host.rule == "prod" and policy == "free":
-        raise ConfigError(f"{where}: {host.id} is production, policy: free is not allowed")
+    for host in hosts:
+        if not host.ssh:
+            raise ConfigError(f"{where}: {host.id} has no ssh address")
+        if host.rule == "prod" and policy == "free":
+            raise ConfigError(f"{where}: {host.id} is production, policy: free is not allowed")
     run = raw.get("run")
     if (
         not isinstance(run, list)
@@ -135,28 +188,9 @@ def _parse_action(i: int, raw, config: Config) -> Action:
     for pattern in FORBIDDEN:
         if pattern.search(joined):
             raise ConfigError(f"{where}: '{joined}' matches a forbidden command")
-
-    params = {}
-    for name, p in (raw.get("params") or {}).items():
-        pw = f"{where}.params.{name}"
-        if not re.fullmatch(r"[a-z_][a-z0-9_]*", str(name)):
-            raise ConfigError(f"{pw}: bad parameter name")
-        if not isinstance(p, dict):
-            raise ConfigError(f"{pw}: expected pattern and default")
-        try:
-            pattern = re.compile(str(p.get("pattern", "")))
-        except re.error as e:
-            raise ConfigError(f"{pw}: bad pattern ({e})") from None
-        default = p.get("default")
-        if not isinstance(default, str) or not pattern.fullmatch(default):
-            raise ConfigError(f"{pw}: default must be a string matching the pattern")
-        params[name] = Param(name, pattern, default)
     used = {m for arg in run for m in PLACEHOLDER_RE.findall(arg)}
-    for name in used - set(params):
-        raise ConfigError(f"{where}: placeholder {{{name}}} has no params entry")
-    for name in set(params) - used:
-        raise ConfigError(f"{where}: params.{name} is not used in run")
-    return Action(id_, title, host.id, "ssh", policy, list(run), params, note)
+    params = _params(raw, where, used)
+    return Action(id_, title, targets, "ssh", policy, list(run), params, note)
 
 
 def parse(data, config: Config) -> list[Action]:

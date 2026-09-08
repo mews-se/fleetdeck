@@ -14,7 +14,7 @@ def entry(**kw):
         "policy": "free",
     }
     base.update(kw)
-    return base
+    return {k: v for k, v in base.items() if v is not None}
 
 
 def test_example_loads(actions):
@@ -26,7 +26,35 @@ def test_example_loads(actions):
     with pytest.raises(ValueError):
         seeda.argv({"seconds": "10; rm -rf /"})
     start = next(a for a in actions if a.id == "start-vm-904")
-    assert start.summary() == "start qemu 904"
+    assert start.summary() == "start qemu 904" and start.targets == ["proxmox"]
+    uptime = next(a for a in actions if a.id == "uptime")
+    assert uptime.target == "dellpi" and "testdebugbrk" in uptime.targets
+    assert seeda.summary({"seconds": "5"}).startswith("sh -c timeout 5 ")
+
+
+def test_targets(cfg):
+    a = catalog.parse([entry(target=None, targets=["testdebug", "dellpi"], policy="read")],
+                      cfg)[0]
+    assert a.targets == ["testdebug", "dellpi"] and a.target == "testdebug"
+    with pytest.raises(ConfigError, match="not both"):
+        catalog.parse([entry(targets=["testdebug"])], cfg)
+    with pytest.raises(ConfigError, match="listed twice"):
+        catalog.parse([entry(target=None, targets=["testdebug", "testdebug"])], cfg)
+    with pytest.raises(ConfigError, match="unknown target"):
+        catalog.parse([entry(target=None, targets=["testdebug", "nowhere"])], cfg)
+    with pytest.raises(ConfigError, match="production"):
+        catalog.parse([entry(target=None, targets=["testdebug", "dellpi"])], cfg)
+    with pytest.raises(ConfigError, match="read-only"):
+        catalog.parse([entry(target=None, targets=["testdebug", "nas"])], cfg)
+    with pytest.raises(ConfigError, match="no ssh address"):
+        catalog.parse([entry(target=None, targets=["testdebug", "nas"], policy="read")], cfg)
+    a = catalog.parse([entry(target=None, targets=["testdebug", "pfsense-home"],
+                             policy="read")], cfg)[0]
+    assert a.targets == ["testdebug", "pfsense-home"]
+    with pytest.raises(ConfigError, match="one target"):
+        catalog.parse([entry(target=None, targets=["proxmox", "proxbrk"], policy="confirm",
+                             kind="pve", run={"vmid": 904, "type": "qemu", "op": "start"})],
+                      cfg)
 
 
 @pytest.mark.parametrize(

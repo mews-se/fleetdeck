@@ -48,17 +48,21 @@ class Runner:
         return sorted(self.live)
 
     async def start(self, action: Action, params: dict[str, str] | None,
-                    requested_by: str | None, confirmed: bool) -> int:
-        argv = action.argv(params) if action.kind == "ssh" else []
+                    requested_by: str | None, confirmed: bool, target: str | None = None) -> int:
+        target = target or action.target
+        if target not in action.targets:
+            raise ValueError(f"{target} is not a target of {action.id}")
+        filled = action.fill(params)
+        argv = action.argv(filled) if action.kind == "ssh" else []
         output_file = ""
         run_id = self.ctx.db.new_run(
-            action.id, action.target, action.summary(), requested_by, confirmed, output_file
+            action.id, target, action.summary(filled), requested_by, confirmed, output_file
         )
         output_file = str(self.runs_dir / f"{run_id}.log")
         self.ctx.db.set_run_output(run_id, output_file)
         self.live[run_id] = []
         self.subscribers[run_id] = set()
-        task = asyncio.create_task(self._execute(run_id, action, argv, output_file))
+        task = asyncio.create_task(self._execute(run_id, action, target, argv, output_file))
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
         self.events.publish("run", {"id": run_id, "action": action.id, "state": "started"})
@@ -81,8 +85,9 @@ class Runner:
         except OSError:
             return []
 
-    async def _execute(self, run_id: int, action: Action, argv: list[str], output_file: str):
-        lock = self.locks.setdefault(action.target, asyncio.Lock())
+    async def _execute(self, run_id: int, action: Action, target: str, argv: list[str],
+                       output_file: str):
+        lock = self.locks.setdefault(target, asyncio.Lock())
         code = 1
         written = 0
         f = open(output_file, "w")
@@ -106,12 +111,12 @@ class Runner:
 
         try:
             if lock.locked():
-                emit(f"waiting for another run on {action.target}")
+                emit(f"waiting for another run on {target}")
             async with lock:
                 if action.kind == "pve":
                     code = await self._run_pve(action, emit)
                 else:
-                    code = await self._run_ssh(action, argv, emit)
+                    code = await self._run_ssh(target, argv, emit)
         except asyncio.CancelledError:
             emit("cancelled")
             code = 130
@@ -130,8 +135,8 @@ class Runner:
                 "run", {"id": run_id, "action": action.id, "state": "finished", "exit": code}
             )
 
-    async def _run_ssh(self, action: Action, argv: list[str], emit) -> int:
-        host = self.ctx.config.hosts[action.target]
+    async def _run_ssh(self, target: str, argv: list[str], emit) -> int:
+        host = self.ctx.config.hosts[target]
         cmd = self.ssh_argv(host, argv)
         emit(f"$ {shlex.join(argv)}  # {host.ssh}")
         proc = await asyncio.create_subprocess_exec(
