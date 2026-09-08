@@ -1,0 +1,17 @@
+services:
+  fleetdeck:
+    # Pinned on purpose: this container runs commands on production hosts,
+    # so a new version is a deliberate bump, never a watchtower pull.
+    image: ghcr.io/mews-se/fleetdeck:0.1.0
+    container_name: fleetdeck
+    restart: unless-stopped
+    user: "1000:1000"
+    ports:
+      - "8310:8310"
+    volumes:
+      - ./data:/data
+      - ./config:/config:ro
+      - ./keys:/keys:ro
+      - /home/dietpi/console-secrets:/secrets:ro
+    environment:
+      TZ: Europe/Stockholm
