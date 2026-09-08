@@ -154,17 +154,51 @@ const FD = (() => {
       Object.entries(d.unconfigured).map(([n, why]) => `<tr><td class="mono">${esc(n)}</td><td class="dim" colspan="2">${esc(why)}</td><td>${pill('off', 'not configured')}</td></tr>`).join('');
   };
 
+  /* click a column header to sort; the choice is kept per browser */
+  const SORT_KEY = 'fd.hosts.sort';
+  let hostSort = null;
+  try { hostSort = JSON.parse(localStorage.getItem(SORT_KEY)); } catch (e) { /* none */ }
+  const statusRank = { down: 0, noagent: 1, up: 2, paused: 3, off: 4 };
+  function sortHosts(rows) {
+    if (!hostSort) return rows;
+    const { key, dir } = hostSort;
+    const val = (h) => key === 'status' ? statusRank[h.status] : h[key];
+    return [...rows].sort((a, b) => {
+      const x = val(a), y = val(b);
+      if (x == null && y == null) return 0;
+      if (x == null) return 1;
+      if (y == null) return -1;
+      const r = typeof x === 'number' ? x - y : String(x).localeCompare(String(y));
+      return dir === 'desc' ? -r : r;
+    });
+  }
+  function th(label, key, cls = '') {
+    const on = hostSort && hostSort.key === key;
+    const arrow = on ? (hostSort.dir === 'desc' ? ' ▾' : ' ▴') : '';
+    return `<th class="${cls}${key ? ' sortable' : ''}"${key ? ` data-sort="${key}"` : ''}>${label}${arrow}</th>`;
+  }
+
   R.hosts = (d) => {
     const c = d.counts;
     $('hosts-meta').textContent = `${c.up} of ${c.total} up · ${c.off} off by rule · ${c.noagent} without agent`;
     const kind = { up: 'good', down: 'crit', off: 'off', noagent: 'warn', paused: 'off' };
-    $('hosts-t').innerHTML = `<tr><th></th><th>Host</th><th>Site</th><th>Role</th><th>Agent</th><th>CPU</th><th>Memory</th><th>Disk</th><th class="num">Temp</th><th class="num">Up</th><th></th></tr>` +
-      d.hosts.map((h) => `<tr>
+    $('hosts-t').innerHTML = `<tr>${th('', 'status')}${th('Host', 'id')}${th('Site', 'site')}${th('Role', 'role')}${th('Agent', 'agent')}${th('CPU', 'cpu')}${th('Memory', 'mem')}${th('Disk', 'disk')}${th('Temp', 'temp', 'num')}${th('Up', 'uptime', 'num')}<th></th></tr>` +
+      sortHosts(d.hosts).map((h) => `<tr>
         <td>${dot(kind[h.status])}</td><td><b>${esc(h.id)}</b><br><span class="small">${esc(h.ip || '')}</span></td><td>${esc(h.site)}</td><td class="wrap">${esc(h.role)}</td>
         <td class="sub">${h.status === 'noagent' ? '<span class="dim">none</span>' : h.status === 'down' ? `<span class="pill crit">down ${age(h.down_since)}</span>` : h.status === 'off' && !h.agent ? '<span class="dim">off</span>' : esc(h.agent || '')}${h.kernel ? `<br><span class="small">${esc(h.kernel)}</span>` : ''}</td>
         <td>${h.status === 'up' ? bar(h.cpu) : dash}</td><td>${h.status === 'up' ? bar(h.mem) : dash}</td><td>${h.status === 'up' ? bar(h.disk) : dash}</td>
         <td class="num">${h.status === 'up' && h.temp ? `${num(h.temp)} °C` : '—'}</td><td class="num">${h.status === 'up' ? span(h.uptime) : '—'}</td>
         <td><span class="links">${h.beszel ? `<a href="${esc(h.beszel)}" target="_blank" rel="noopener">beszel</a>` : ''}${d.links.termix ? `<a href="${esc(d.links.termix)}" target="_blank" rel="noopener">termix</a>` : ''}</span></td></tr>`).join('');
+    $('hosts-t').querySelectorAll('th[data-sort]').forEach((el) => {
+      el.onclick = () => {
+        const key = el.dataset.sort;
+        const numeric = ['cpu', 'mem', 'disk', 'temp', 'uptime'].includes(key);
+        if (hostSort && hostSort.key === key) hostSort = hostSort.dir === 'asc' ? { key, dir: 'desc' } : null;
+        else hostSort = { key, dir: numeric ? 'desc' : 'asc' };
+        try { localStorage.setItem(SORT_KEY, JSON.stringify(hostSort)); } catch (e) { /* private mode */ }
+        R.hosts(d);
+      };
+    });
   };
 
   R.guests = (d) => {
