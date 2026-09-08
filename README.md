@@ -121,7 +121,8 @@ and kept in `data/runs/`.
 An entry names one `target` or a list of `targets`; with a list the Actions
 page shows a host picker and every host is checked against the policy. A
 `dockhand` entry whose container is a parameter appears as a button on every
-container row of the environments it targets.
+container row of the environments it targets. An `ssh` entry is killed after
+15 minutes unless it sets its own `timeout` in seconds.
 
 Both files have a complete example next to them in `config/`.
 

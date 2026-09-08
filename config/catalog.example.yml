@@ -26,6 +26,18 @@
   run: ["docker", "ps"]
   policy: read
 
+# the fleet's usual upgrade round, kept non-interactive; ssh entries take a
+# timeout in seconds when 15 minutes is not enough
+- id: apt-upgrade
+  title: apt update, dist-upgrade, autoremove, clean
+  targets: [dellpi, teslamate, testpi5, kodipi5, testpi, pizerow, testdebug,
+            brkpi5, dietpibrk, testdebugbrk]
+  kind: ssh
+  run: ["sudo", "-n", "sh", "-c",
+        "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get dist-upgrade -y && apt-get autoremove -y && apt-get clean"]
+  policy: confirm
+  timeout: 3600
+
 # Container operations go through Dockhand's API; the Containers page shows
 # them as buttons on every row of the environments listed here.
 - id: container-restart

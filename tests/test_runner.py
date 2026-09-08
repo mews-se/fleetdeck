@@ -72,6 +72,21 @@ async def test_bad_param_rejected(cfg, secrets, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_ssh_run_is_killed_at_its_timeout(cfg, secrets, tmp_path):
+    ctx = make_ctx(cfg, secrets)
+    actions = catalog.parse([
+        {"id": "slow", "title": "s", "target": "testdebug", "kind": "ssh",
+         "run": ["sh", "-c", "echo started; sleep 5; echo never"], "policy": "free",
+         "timeout": 1},
+    ], cfg)
+    runner = Runner(ctx, actions, tmp_path / "runs", EventBus(), local_argv)
+    run_id = await runner.start(actions[0], None, None, False)
+    lines = await drain(runner, run_id)
+    assert "started" in lines and "never" not in lines
+    assert "killed after 1 s" in lines and lines[-1] == "exit 124"
+
+
+@pytest.mark.asyncio
 async def test_target_is_chosen_per_run(cfg, secrets, tmp_path):
     ctx = make_ctx(cfg, secrets)
     actions = catalog.parse([

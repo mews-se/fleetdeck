@@ -24,7 +24,6 @@ log = logging.getLogger("fleetdeck.runner")
 
 MAX_OUTPUT = 256 * 1024
 PVE_TASK_TIMEOUT = 180
-SSH_TIMEOUT = 900
 DOCKHAND_TIMEOUT = 600
 END = None
 
@@ -123,7 +122,7 @@ class Runner:
                 elif action.kind == "dockhand":
                     code = await self._run_dockhand(action, target, container or "", emit)
                 else:
-                    code = await self._run_ssh(target, argv, emit)
+                    code = await self._run_ssh(target, argv, emit, action.timeout)
         except asyncio.CancelledError:
             emit("cancelled")
             code = 130
@@ -142,7 +141,7 @@ class Runner:
                 "run", {"id": run_id, "action": action.id, "state": "finished", "exit": code}
             )
 
-    async def _run_ssh(self, target: str, argv: list[str], emit) -> int:
+    async def _run_ssh(self, target: str, argv: list[str], emit, timeout: int) -> int:
         host = self.ctx.config.hosts[target]
         cmd = self.ssh_argv(host, argv)
         emit(f"$ {shlex.join(argv)}  # {host.ssh}")
@@ -153,14 +152,14 @@ class Runner:
             stderr=asyncio.subprocess.STDOUT,
         )
         try:
-            async with asyncio.timeout(SSH_TIMEOUT):
+            async with asyncio.timeout(timeout):
                 assert proc.stdout is not None
                 async for raw in proc.stdout:
                     emit(raw.decode("utf-8", "replace").rstrip("\r\n"))
                 return await proc.wait()
         except TimeoutError:
             proc.kill()
-            emit(f"killed after {SSH_TIMEOUT} s")
+            emit(f"killed after {timeout} s")
             return 124
 
     async def _run_dockhand(self, action: Action, target: str, container: str, emit) -> int:

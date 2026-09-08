@@ -19,6 +19,8 @@ PVE_TYPES = ("qemu", "lxc")
 DOCKHAND_OPS = ("start", "stop", "restart", "update")
 PLACEHOLDER_RE = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
 CONTAINER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+DEFAULT_TIMEOUT = 900
+MAX_TIMEOUT = 4 * 3600
 
 # Never a catalog operation, whatever the policy says.
 FORBIDDEN = [
@@ -51,6 +53,7 @@ class Action:
     run: list[str] | dict
     params: dict[str, Param] = field(default_factory=dict)
     note: str = ""
+    timeout: int = DEFAULT_TIMEOUT
 
     @property
     def target(self) -> str:
@@ -154,6 +157,11 @@ def _parse_action(i: int, raw, config: Config) -> Action:
     note = raw.get("note", "")
     if not isinstance(note, str):
         raise ConfigError(f"{where}: note must be a string")
+    if "timeout" in raw and kind != "ssh":
+        raise ConfigError(f"{where}: timeout applies to ssh entries only")
+    timeout = raw.get("timeout", DEFAULT_TIMEOUT)
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= MAX_TIMEOUT:
+        raise ConfigError(f"{where}: timeout must be 1 to {MAX_TIMEOUT} seconds")
 
     # A power operation on a free guest is free even though the PVE host is
     # production; free_guests is the gate, not the host rule.
@@ -222,7 +230,7 @@ def _parse_action(i: int, raw, config: Config) -> Action:
             raise ConfigError(f"{where}: '{joined}' matches a forbidden command")
     used = {m for arg in run for m in PLACEHOLDER_RE.findall(arg)}
     params = _params(raw, where, used)
-    return Action(id_, title, targets, "ssh", policy, list(run), params, note)
+    return Action(id_, title, targets, "ssh", policy, list(run), params, note, timeout)
 
 
 def parse(data, config: Config) -> list[Action]:

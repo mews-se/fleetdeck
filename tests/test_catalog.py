@@ -126,6 +126,17 @@ def test_dockhand_rejects(cfg, kw, message):
         catalog.parse([dh(**kw)], cfg)
 
 
+def test_timeout(cfg, actions):
+    assert catalog.parse([entry()], cfg)[0].timeout == 900
+    assert catalog.parse([entry(timeout=3600)], cfg)[0].timeout == 3600
+    assert next(a for a in actions if a.id == "apt-upgrade").timeout == 3600
+    for bad in (0, -5, "10", True, 5 * 3600):
+        with pytest.raises(ConfigError, match="timeout must be"):
+            catalog.parse([entry(timeout=bad)], cfg)
+    with pytest.raises(ConfigError, match="ssh entries only"):
+        catalog.parse([dh(timeout=60)], cfg)
+
+
 def test_duplicate_ids(cfg):
     with pytest.raises(ConfigError, match="duplicate"):
         catalog.parse([entry(), entry()], cfg)
