@@ -1,7 +1,15 @@
 """Proxmox VE, one API token per host. The same client serves the runner."""
 
+import re
+
+import httpx
+
 from app.config import Pve
-from app.sources import Context, Source
+from app.sources import Context, Source, SourceError
+
+NET_RE = re.compile(r"^net\d+$")
+DISK_RE = re.compile(r"^(scsi|sata|virtio|ide|efidisk|tpmstate|rootfs|mp)\d*$")
+MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
 
 
 class PveApi:
@@ -58,10 +66,105 @@ class PveVersion(Source):
         )
 
 
+class PveGuestConfig(Source):
+    interval = 6 * 3600
+    timeout = 120
+
+    def __init__(self, ctx: Context, pve: Pve):
+        super().__init__(ctx)
+        self.name = f"pve.{pve.id}.config"
+        self.pve = pve
+        self.api = PveApi(ctx, pve)
+
+    async def collect(self):
+        resources = await self.api.get("/cluster/resources", type="vm") or []
+        snaps, errors = {}, []
+        for res in resources:
+            kind, vmid = res.get("type"), res.get("vmid")
+            if kind not in ("qemu", "lxc") or vmid is None or res.get("node") != self.pve.node:
+                continue
+            try:
+                raw = await self.api.get(f"/nodes/{self.pve.node}/{kind}/{vmid}/config")
+            except httpx.HTTPError as e:
+                errors.append(f"{vmid}: {e}")
+                continue
+            snaps[f"guest:{vmid}"] = parse_config(kind, vmid, raw or {})
+        self.ctx.db.put_snapshots(self.name, snaps, prefix="guest:", ts=self.ctx.now())
+        if errors:
+            raise SourceError("; ".join(errors))
+
+
 def _pct(used, total):
     if not total:
         return None
     return round(100.0 * float(used or 0) / float(total), 1)
+
+
+def _options(value) -> tuple[str | None, dict[str, str]]:
+    """A PVE property string: an optional bare first token, then key=value pairs."""
+    head, opts = None, {}
+    for i, part in enumerate(str(value).split(",")):
+        key, sep, val = part.partition("=")
+        if sep:
+            opts[key.strip()] = val.strip()
+        elif i == 0 and part.strip():
+            head = part.strip()
+    return head, opts
+
+
+def _int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_config(kind: str, vmid: int, raw: dict) -> dict:
+    nics, disks = [], []
+    for key, value in sorted(raw.items()):
+        if NET_RE.match(key):
+            _head, o = _options(value)
+            mac = o.get("hwaddr")
+            model = o.get("type")
+            # qemu writes the address as the value of the model: virtio=BC:24:...
+            for k, v in o.items():
+                if MAC_RE.match(v) and k != "hwaddr":
+                    model, mac = k, v
+            nics.append({
+                "name": key,
+                "model": model,
+                "mac": mac.lower() if mac else None,
+                "bridge": o.get("bridge"),
+                "ip": o.get("ip"),
+                "vlan": _int(o.get("tag")),
+            })
+        elif DISK_RE.match(key):
+            head, o = _options(value)
+            if not head or head == "none" or o.get("media") == "cdrom":
+                continue
+            disks.append({
+                "name": key,
+                "volume": head,
+                "storage": head.partition(":")[0] if ":" in head else None,
+                "size": o.get("size"),
+            })
+    return {
+        "vmid": vmid,
+        "type": kind,
+        "name": raw.get("name") or raw.get("hostname"),
+        "cores": _int(raw.get("cores")),
+        "sockets": _int(raw.get("sockets")),
+        "memory": _int(raw.get("memory")),
+        "swap": _int(raw.get("swap")),
+        "onboot": bool(_int(raw.get("onboot"))),
+        "startup": raw.get("startup"),
+        "ostype": raw.get("ostype"),
+        "agent": raw.get("agent"),
+        "unprivileged": bool(_int(raw.get("unprivileged"))) if kind == "lxc" else None,
+        "tags": raw.get("tags"),
+        "nics": nics,
+        "disks": disks,
+    }
 
 
 def parse_resources(pve_id: str, resources: list[dict], status: dict, ts: int):
@@ -146,5 +249,5 @@ def build(ctx: Context):
         if not ctx.secrets.has(pve.secret):
             missing[f"pve.{pve.id}"] = f"secret {pve.secret} is missing"
             continue
-        sources += [PveResources(ctx, pve), PveVersion(ctx, pve)]
+        sources += [PveResources(ctx, pve), PveVersion(ctx, pve), PveGuestConfig(ctx, pve)]
     return sources, missing

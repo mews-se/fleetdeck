@@ -96,13 +96,32 @@ async def test_pve(cfg, secrets):
             "/api2/json/nodes/proxmox/status": "pve_status.json",
             "/api2/json/nodes/pve/status": "pve_status.json",
             "/api2/json/version": "pve_version.json",
+            "/api2/json/nodes/proxmox/qemu/104/config": "pve_config_qemu.json",
+            "/api2/json/nodes/proxmox/qemu/904/config": "pve_config_qemu.json",
+            "/api2/json/nodes/proxmox/qemu/301/config": "pve_config_qemu.json",
+            "/api2/json/nodes/proxmox/lxc/108/config": "pve_config_lxc.json",
         })(request)
 
     ctx = make_ctx(cfg, secrets, handler)
     built, missing = pve.build(ctx)
-    assert missing == {} and len(built) == 4
+    assert missing == {} and len(built) == 6
     for s in built:
         await s.collect()
+    vm = ctx.db.get_snapshot("pve.home.config", "guest:904")
+    assert vm["name"] == "testdebug" and vm["cores"] == 2 and vm["memory"] == 4096
+    assert vm["onboot"] is False and vm["unprivileged"] is None
+    assert vm["nics"] == [{"name": "net0", "model": "virtio", "mac": "bc:24:11:8d:69:3c",
+                           "bridge": "vmbr0", "ip": None, "vlan": None}]
+    assert [d["name"] for d in vm["disks"]] == ["efidisk0", "scsi0"]
+    assert vm["disks"][1] == {"name": "scsi0", "volume": "local:904/vm-904-disk-0.qcow2",
+                              "storage": "local", "size": "20G"}
+    ct = ctx.db.get_snapshot("pve.home.config", "guest:108")
+    assert ct["name"] == "adguard" and ct["onboot"] is True and ct["unprivileged"] is True
+    assert ct["startup"] == "order=1,up=10" and ct["swap"] == 512
+    assert ct["nics"][0]["mac"] == "bc:24:11:cc:60:ea" and ct["nics"][0]["ip"] == "dhcp"
+    assert ct["disks"] == [{"name": "rootfs", "volume": "sda:108/vm-108-disk-0.raw",
+                            "storage": "sda", "size": "10G"}]
+    assert ctx.db.get_snapshots("pve.brk.config", "guest:") == []
     assert seen[0] == "PVEAPIToken=token"
     node = ctx.db.get_snapshot("pve.home", "node")
     assert node["cpu"] == 7.1 and node["load"] == [0.52, 0.61, 0.58]

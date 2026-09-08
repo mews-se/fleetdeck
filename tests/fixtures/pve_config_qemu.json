@@ -1,0 +1,20 @@
+{
+  "data": {
+    "name": "testdebug",
+    "cores": 2,
+    "sockets": 1,
+    "memory": 4096,
+    "onboot": 0,
+    "ostype": "l26",
+    "agent": "1",
+    "boot": "order=scsi0;ide2",
+    "scsihw": "virtio-scsi-single",
+    "scsi0": "local:904/vm-904-disk-0.qcow2,discard=on,iothread=1,size=20G",
+    "ide2": "local:iso/dietpi.iso,media=cdrom",
+    "efidisk0": "local:904/vm-904-disk-1.qcow2,efitype=4m,size=528K",
+    "net0": "virtio=BC:24:11:8D:69:3C,bridge=vmbr0,firewall=1",
+    "smbios1": "uuid=0c0f0b1e-0000-0000-0000-000000000904",
+    "vmgenid": "b6d0c0f0-0000-0000-0000-000000000904",
+    "digest": "abc"
+  }
+}
