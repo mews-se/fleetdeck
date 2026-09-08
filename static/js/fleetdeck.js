@@ -19,7 +19,7 @@ const FD = (() => {
     return `${Math.round(s / 86400)} d`;
   };
   const age = (ts) => ts ? span(nowS() - ts) : '—';
-  const when = (ts) => ts ? new Date(ts * 1000).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+  const when = (ts) => ts ? new Date(ts * 1000).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) : '—';
   const dateOf = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '—';
   const gb = (b) => b == null ? '—' : `${(b / 1e9).toFixed(b >= 1e11 ? 0 : 1)} GB`;
   const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -282,7 +282,7 @@ const FD = (() => {
   R.run = (d) => {
     const r = d.run;
     $('run-title').textContent = `${d.title} on ${r.target}`;
-    $('run-kv').innerHTML = `<dt>Command</dt><dd>${esc(r.summary)}</dd><dt>Started</dt><dd>${new Date(r.started_ts * 1000).toLocaleString()}${r.requested_by ? ` by ${esc(r.requested_by)}` : ''}${r.confirmed ? ' · confirmed' : ''}</dd><dt>Result</dt><dd>${r.finished_ts ? `exit ${r.exit_code} after ${span(r.finished_ts - r.started_ts)}` : 'running'}</dd>`;
+    $('run-kv').innerHTML = `<dt>Command</dt><dd>${esc(r.summary)}</dd><dt>Started</dt><dd>${new Date(r.started_ts * 1000).toLocaleString(undefined, { hourCycle: 'h23' })}${r.requested_by ? ` by ${esc(r.requested_by)}` : ''}${r.confirmed ? ' · confirmed' : ''}</dd><dt>Result</dt><dd>${r.finished_ts ? `exit ${r.exit_code} after ${span(r.finished_ts - r.started_ts)}` : 'running'}</dd>`;
     const term = $('term');
     if (d.live) stream(r.id, term, $('term-meta'), d.title);
     else { term.innerHTML = ''; d.lines.forEach((l) => termLine(term, l)); $('term-meta').textContent = r.finished_ts ? 'finished' : ''; }
@@ -314,7 +314,7 @@ const FD = (() => {
       $('chips').innerHTML = Object.entries(chips).map(([n, c]) => `<span class="chip" data-chip="${n}"><span class="dot ${c.kind}"></span>${esc(c.text)}</span>`).join('');
     } catch (e) { /* same */ }
   }
-  function clock() { const el = $('clock'); if (el) el.textContent = new Date().toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+  function clock() { const el = $('clock'); if (el) el.textContent = new Date().toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }); }
   function events() {
     const src = new EventSource('/api/events');
     src.addEventListener('attention', () => { refreshNav(); if (page === 'overview') refresh(); });
