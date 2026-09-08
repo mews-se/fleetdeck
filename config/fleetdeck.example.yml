@@ -194,7 +194,7 @@ links:
   dockhand: http://10.0.0.6:3030
   beszel: http://10.0.0.6:8090
   kuma: http://10.0.0.6:3010
-  termix: http://10.0.0.18:8080
+  termix: http://10.0.0.18
   adguard: http://10.0.0.19
   pve-home: https://10.0.0.99:8006
   pve-brk: https://10.0.1.7:8006

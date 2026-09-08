@@ -65,7 +65,7 @@
   target: proxmox
   kind: ssh
   run: ["pct", "exec", "107", "--", "runuser", "-u", "www-data", "--",
-        "php", "/var/www/domain-monitor/cron/check_dns.php"]
+        "/usr/bin/php", "/opt/domain-monitor/cron/check_dns.php"]
   policy: confirm
 
 - id: docker-prune-904
