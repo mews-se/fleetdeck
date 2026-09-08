@@ -1,0 +1,83 @@
+# Copy to catalog.yml. Every entry is checked against the hosts' rule when the
+# app starts: read-only hosts take only read entries, production hosts never
+# take free ones, and PVE power operations must name a guest in free_guests.
+
+- id: start-vm-904
+  title: Start VM 904
+  target: proxmox
+  kind: pve
+  run: {vmid: 904, type: qemu, op: start}
+  policy: free
+
+- id: shutdown-vm-904
+  title: Shut down VM 904
+  target: proxmox
+  kind: pve
+  run: {vmid: 904, type: qemu, op: shutdown}
+  policy: free
+
+- id: start-vm-902
+  title: Start VM 902
+  target: proxbrk
+  kind: pve
+  run: {vmid: 902, type: qemu, op: start}
+  policy: free
+
+- id: shutdown-vm-902
+  title: Shut down VM 902
+  target: proxbrk
+  kind: pve
+  run: {vmid: 902, type: qemu, op: shutdown}
+  policy: free
+
+- id: seeda-status
+  title: seeda status
+  target: dellpi
+  kind: ssh
+  run: ["/home/dietpi/seeda-rate.sh", "{seconds}"]
+  params:
+    seconds: {pattern: "[1-9][0-9]?", default: "10"}
+  policy: read
+
+- id: seeda-run
+  title: Run seeda now
+  target: dellpi
+  kind: ssh
+  run: ["/home/dietpi/seeda.sh"]
+  policy: confirm
+
+- id: npm-reload
+  title: Reload nginx in NPM
+  target: dellpi
+  kind: ssh
+  run: ["docker", "exec", "docker-nginxproxymanager-app-1", "nginx", "-s", "reload"]
+  policy: confirm
+
+- id: adguard-restart
+  title: Restart AdGuard Home
+  target: proxmox
+  kind: ssh
+  run: ["pct", "exec", "108", "--", "systemctl", "restart", "AdGuardHome"]
+  policy: confirm
+
+- id: dns-check-now
+  title: DNS check now
+  target: proxmox
+  kind: ssh
+  run: ["pct", "exec", "107", "--", "runuser", "-u", "www-data", "--",
+        "php", "/var/www/domain-monitor/cron/check_dns.php"]
+  policy: confirm
+
+- id: docker-prune-904
+  title: Docker prune on 904
+  target: testdebug
+  kind: ssh
+  run: ["docker", "system", "prune", "-f"]
+  policy: free
+
+- id: uptime-904
+  title: Uptime and load on 904
+  target: testdebug
+  kind: ssh
+  run: ["uptime"]
+  policy: read

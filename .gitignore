@@ -1,0 +1,13 @@
+data/
+*.db
+*.db-wal
+*.db-shm
+__pycache__/
+*.pyc
+.ruff_cache/
+.pytest_cache/
+.venv/
+config/fleetdeck.yml
+config/catalog.yml
+config/known_hosts
+keys/

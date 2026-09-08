@@ -1,0 +1,146 @@
+# Copy to fleetdeck.yml. Secrets are file names in the secrets directory,
+# never values.
+
+title: fleetdeck
+
+sites:
+  home: {name: home}
+  brk:  {name: BRK}
+
+hosts:
+  dellpi:
+    site: home
+    ip: 10.0.0.6
+    ssh: dietpi@10.0.0.6
+    beszel: dellpi
+    dockhand_env: 1
+    rule: prod
+    role: Docker host, NPM, backups
+  proxmox:
+    site: home
+    ip: 10.0.0.99
+    ssh: root@10.0.0.99
+    beszel: prox
+    pve: home
+    rule: prod
+    role: PVE host
+  teslamate:
+    site: home
+    ip: 10.0.0.14
+    ssh: dietpi@10.0.0.14
+    beszel: teslamate
+    dockhand_env: 4
+    guest: {pve: home, vmid: 104}
+    rule: prod
+    role: VM 104, TeslaMate
+  testpi5:
+    site: home
+    ip: 10.0.0.17
+    ssh: dietpi@10.0.0.17
+    beszel: testpi5
+    rule: prod
+    role: Pi 5
+  testdebug:
+    site: home
+    ip: 10.0.0.185
+    ssh: dietpi@10.0.0.185
+    guest: {pve: home, vmid: 904}
+    rule: test
+    off_by_default: true
+    role: VM 904, free test environment
+  nas:
+    site: home
+    ip: 10.0.0.100
+    beszel: nas
+    rule: readonly
+    window: nas
+    role: NAS, on by schedule
+  proxbrk:
+    site: brk
+    ip: 10.0.1.7
+    ssh: root@10.0.1.7
+    beszel: proxbrk
+    pve: brk
+    rule: prod
+    role: PVE host
+  dietpibrk:
+    site: brk
+    ip: 10.0.1.11
+    ssh: dietpi@10.0.1.11
+    beszel: dietpibrk
+    dockhand_env: 5
+    guest: {pve: brk, vmid: 102}
+    rule: prod
+    role: VM 102, WallConnectorLog, NPM
+  testdebugbrk:
+    site: brk
+    ip: 10.0.1.18
+    ssh: dietpi@10.0.1.18
+    guest: {pve: brk, vmid: 902}
+    rule: test
+    off_by_default: true
+    role: VM 902, free test environment
+  pfsense-home:
+    site: home
+    ip: 10.0.0.1
+    ssh: admin@10.0.0.1
+    ssh_port: 2221
+    rule: readonly
+    role: pfSense
+  pfsense-brk:
+    site: brk
+    ip: 10.0.1.1
+    ssh: admin@10.0.1.1
+    ssh_port: 2221
+    rule: readonly
+    role: pfSense
+
+pve:
+  home:
+    url: https://10.0.0.99:8006
+    node: proxmox
+    secret: pve-home.token
+    free_guests: [904, 905, 990, 991]
+  brk:
+    url: https://10.0.1.7:8006
+    node: pve
+    secret: pve-brk.token
+    free_guests: [902]
+
+sources:
+  beszel:   {url: http://10.0.0.6:8090, secret: beszel.auth}
+  dockhand: {url: http://10.0.0.6:3030, secret: dockhand.token}
+  kuma:     {url: http://10.0.0.6:3010, secret: kuma.key}
+  adguard:  {url: http://10.0.0.19, secret: adguard.auth}
+  speedtest:
+    home: {url: http://10.0.0.6:8765, secret: speedtest-home.token, site: home}
+    brk:  {url: http://10.0.1.11:8081, secret: speedtest-brk.token, site: brk}
+
+github:
+  secret: github.token
+  watch_threads:
+    - {repo: Hosteroid/domain-monitor, numbers: [98, 99, 100]}
+    - {repo: namazso/PawnIO.Modules, numbers: [105]}
+    - {repo: Shuzhengz/TPFanCtrl2, numbers: [119]}
+    - {repo: tobiasehlert/teslamateapi, numbers: [532, 534]}
+    - {repo: teslamate-org/teslamate, numbers: [5637]}
+  watch_releases:
+    - {repo: henrygd/beszel, running_from: {dockhand: {env: 1, container: beszel}}}
+    - {repo: NginxProxyManager/nginx-proxy-manager,
+       running_from: {dockhand: {env: 1, container: docker-nginxproxymanager-app-1}}}
+    - {repo: louislam/uptime-kuma, running_from: {kuma: true}}
+    - {repo: AdguardTeam/AdGuardHome, running_from: {adguard: true}}
+    - {repo: Finsys/dockhand, running_from: {dockhand_version: true}}
+    - {repo: teslamate-org/teslamate, running_from: {dockhand: {env: 4, container: teslamate}}}
+
+links:
+  pdm: https://10.0.0.200:8443
+  dockhand: http://10.0.0.6:3030
+  beszel: http://10.0.0.6:8090
+  kuma: http://10.0.0.6:3010
+  termix: http://10.0.0.18:8080
+  adguard: http://10.0.0.19
+  pve-home: https://10.0.0.99:8006
+  pve-brk: https://10.0.1.7:8006
+
+nas_window: {start: "15:00", end: "23:00"}
