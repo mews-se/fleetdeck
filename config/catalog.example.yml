@@ -34,7 +34,9 @@
   title: seeda status
   target: dellpi
   kind: ssh
-  run: ["/home/dietpi/seeda-rate.sh", "{seconds}"]
+  # the script samples every 2 s until interrupted; timeout ends it and its
+  # exit 124 is the normal outcome
+  run: ["sh", "-c", "timeout {seconds} /home/dietpi/seeda-rate.sh 2 || [ $? -eq 124 ]"]
   params:
     seconds: {pattern: "[1-9][0-9]?", default: "10"}
   policy: read

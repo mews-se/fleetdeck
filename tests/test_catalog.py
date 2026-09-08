@@ -21,8 +21,8 @@ def test_example_loads(actions):
     ids = [a.id for a in actions]
     assert "start-vm-904" in ids and "seeda-status" in ids
     seeda = next(a for a in actions if a.id == "seeda-status")
-    assert seeda.argv() == ["/home/dietpi/seeda-rate.sh", "10"]
-    assert seeda.argv({"seconds": "30"}) == ["/home/dietpi/seeda-rate.sh", "30"]
+    assert seeda.argv()[-1].startswith("timeout 10 /home/dietpi/seeda-rate.sh")
+    assert seeda.argv({"seconds": "30"})[-1].startswith("timeout 30 ")
     with pytest.raises(ValueError):
         seeda.argv({"seconds": "10; rm -rf /"})
     start = next(a for a in actions if a.id == "start-vm-904")
