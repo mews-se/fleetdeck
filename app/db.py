@@ -409,6 +409,9 @@ class Database:
             )
             return cur.lastrowid
 
+    def set_run_output(self, run_id: int, output_file: str):
+        self._write("UPDATE action_runs SET output_file = ? WHERE id = ?", (output_file, run_id))
+
     def finish_run(self, run_id: int, exit_code: int, ts: int | None = None):
         self._write(
             "UPDATE action_runs SET finished_ts = ?, exit_code = ? WHERE id = ?",
