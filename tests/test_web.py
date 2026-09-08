@@ -129,3 +129,12 @@ def test_bad_requests(client):
                     headers={**SAME, "Content-Type": "application/json"}, content=b"nope")
     assert r.status_code == 400
     assert client.get("/api/actions/runs/999/stream").status_code == 404
+
+
+def test_release_state():
+    from app.views.upstream import release_state
+    assert release_state("v2.15.1", "2.15.1") == "current"
+    assert release_state("v0.19.1", "0.19.0") == "update"
+    assert release_state("v2.15.1", "latest") == "unknown"
+    assert release_state("v2.15.1", None) == "unknown"
+    assert release_state("2.5", "2.5.3") == "current"

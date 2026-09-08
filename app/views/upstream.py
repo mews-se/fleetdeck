@@ -15,7 +15,8 @@ def normalise(version: str | None) -> str | None:
 
 def release_state(latest: str | None, running: str | None) -> str:
     a, b = normalise(latest), normalise(running)
-    if not a or not b:
+    # a tag like "latest" says nothing about the version
+    if not a or not b or not re.search(r"\d", b):
         return "unknown"
     if a == b or b.startswith(a + ".") or a.startswith(b + "."):
         return "current"
