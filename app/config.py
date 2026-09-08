@@ -7,6 +7,7 @@ the file, only the name of a file in the secrets directory.
 
 import os
 import re
+import zoneinfo
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -67,6 +68,7 @@ class Endpoint:
     url: str
     secret: str | None = None
     site: str | None = None
+    timezone: str = "UTC"
 
 
 @dataclass
@@ -195,11 +197,17 @@ def _url(d: dict, where: str) -> str:
 
 def _endpoint(id_: str, d: dict, where: str, site_required=False) -> Endpoint:
     d = _mapping(d, where)
+    tz = _str(d, "timezone", where, default="UTC")
+    try:
+        zoneinfo.ZoneInfo(tz)
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+        raise ConfigError(f"{where}: unknown timezone '{tz}'") from None
     return Endpoint(
         id=id_,
         url=_url(d, where),
         secret=_str(d, "secret", where, required=False),
         site=_str(d, "site", where, required=site_required),
+        timezone=tz,
     )
 
 

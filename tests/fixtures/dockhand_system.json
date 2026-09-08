@@ -1,0 +1,1 @@
+{"docker":{"version":"28.3.2","apiVersion":"1.51"},"host":{"name":"dellpi","cpus":4,"memory":16777216000},"runtime":{"runtimeName":"Node.js","platform":"linux"},"database":{"type":"SQLite","schemaVersion":42},"stats":{"containers":{"total":14,"running":13,"stopped":1},"images":25,"volumes":12,"networks":6,"stacks":9}}

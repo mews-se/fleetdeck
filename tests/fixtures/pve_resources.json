@@ -1,0 +1,10 @@
+{"data":[
+ {"type":"node","node":"proxmox","status":"online","cpu":0.07,"maxcpu":12,"mem":21000000000,"maxmem":33000000000,"uptime":432000,"level":""},
+ {"type":"qemu","vmid":104,"node":"proxmox","name":"teslamate","status":"running","cpu":0.05,"maxcpu":2,"mem":2100000000,"maxmem":4294967296,"disk":0,"maxdisk":21474836480,"uptime":432000,"template":0},
+ {"type":"qemu","vmid":904,"node":"proxmox","name":"testdebug","status":"stopped","cpu":0,"maxcpu":2,"mem":0,"maxmem":4294967296,"disk":0,"maxdisk":21474836480,"uptime":0,"template":0},
+ {"type":"lxc","vmid":108,"node":"proxmox","name":"adguard","status":"running","cpu":0.01,"maxcpu":1,"mem":90000000,"maxmem":536870912,"disk":900000000,"maxdisk":4294967296,"uptime":432000,"tags":"dns"},
+ {"type":"qemu","vmid":301,"node":"proxmox","name":"template","status":"stopped","template":1,"maxcpu":2,"maxmem":2147483648},
+ {"type":"storage","storage":"local","node":"proxmox","plugintype":"dir","status":"available","disk":110000000000,"maxdisk":226000000000,"content":"backup,iso,vztmpl","shared":0},
+ {"type":"storage","storage":"nas-backup","node":"proxmox","plugintype":"cifs","status":"unavailable","disk":0,"maxdisk":0,"content":"backup","shared":1},
+ {"type":"storage","storage":"sda","node":"proxmox","plugintype":"dir","status":"available","disk":460000000000,"maxdisk":480000000000,"content":"backup,images","shared":0}
+]}

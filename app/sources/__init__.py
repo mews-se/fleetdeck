@@ -64,3 +64,16 @@ class Source:
 
     async def collect(self) -> None:
         raise NotImplementedError
+
+
+def build_sources(ctx: Context) -> tuple[list[Source], dict[str, str]]:
+    """All configured sources, plus the names left out and why."""
+    from app.sources import adguard, beszel, dockhand, github, kuma, pve, speedtest
+
+    sources: list[Source] = []
+    unconfigured: dict[str, str] = {}
+    for module in (beszel, pve, dockhand, kuma, adguard, speedtest, github):
+        built, missing = module.build(ctx)
+        sources.extend(built)
+        unconfigured.update(missing)
+    return sources, unconfigured

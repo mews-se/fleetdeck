@@ -1,0 +1,5 @@
+{"data":[
+ {"id":1440,"service":"ookla","ping":1.1,"download":117250000,"upload":116000000,"download_bits":938000000,"upload_bits":928000000,"healthy":true,"status":"completed","scheduled":true,"data":{"server":{"name":"Telia Stockholm"}},"created_at":"2026-09-08 14:30:03","updated_at":"2026-09-08 14:30:03"},
+ {"id":1441,"service":"ookla","ping":null,"download":null,"upload":null,"healthy":null,"status":"failed","scheduled":true,"data":null,"created_at":"2026-09-08 15:00:02","updated_at":"2026-09-08 15:00:02"},
+ {"id":1442,"service":"ookla","ping":1.3,"download":116000000,"upload":115000000,"download_bits":928000000,"upload_bits":920000000,"healthy":true,"status":"completed","scheduled":true,"data":{"server":{"name":"SUNET Stockholm"}},"created_at":"2026-09-08 15:30:04","updated_at":"2026-09-08 15:30:04"}
+],"links":{"first":"http://x/api/v1/results?page%5Bnumber%5D=1","last":"http://x/api/v1/results?page%5Bnumber%5D=1","prev":null,"next":null},"meta":{"current_page":1,"per_page":500,"total":3}}

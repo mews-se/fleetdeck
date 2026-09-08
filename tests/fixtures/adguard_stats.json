@@ -1,0 +1,6 @@
+{"time_units":"hours","num_dns_queries":21400,"num_blocked_filtering":3850,"num_replaced_safebrowsing":0,"num_replaced_safesearch":0,"num_replaced_parental":0,"avg_processing_time":0.018,
+ "top_queried_domains":[{"api.example.net":1200},{"time.apple.com":900}],
+ "top_clients":[{"10.0.0.6":8000}],
+ "top_blocked_domains":[{"eu-mobile.events.data.microsoft.com":640}],
+ "dns_queries":[420,380,300,260,250,240,320,610,980,1150,1200,1100,1050,1180,1240,1210,1160,1300,1420,1380,1250,1080,820,600],
+ "blocked_filtering":[80,70,60,50,40,40,60,110,180,210,220,200,190,210,230,220,210,240,260,250,230,200,150,110]}

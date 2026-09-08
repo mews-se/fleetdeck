@@ -1,0 +1,4 @@
+{"environmentId":1,"pendingUpdates":[
+ {"containerId":"c1","containerName":"beszel","currentImage":"henrygd/beszel:0.19.0","checkedAt":"2026-09-08T16:00:00Z","hasImageUpdate":true,"newerVersion":"0.19.1"},
+ {"containerId":"c2","containerName":"docker-nginxproxymanager-app-1","currentImage":"jc21/nginx-proxy-manager:2.15.1","checkedAt":"2026-09-08T16:00:00Z","hasImageUpdate":false}
+]}
