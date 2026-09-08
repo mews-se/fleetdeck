@@ -271,9 +271,11 @@ const FD = (() => {
   };
 
   R.actions = (d) => {
-    if (changed('catalog', d.actions)) $('act-t').innerHTML = `<tr><th>Action</th><th>Target</th><th>Policy</th><th class="num">Last</th><th></th></tr>` +
+    if (changed('catalog', d.actions)) {
+      $('act-t').innerHTML = `<tr><th>Action</th><th>Target</th><th>Policy</th><th class="num">Last</th><th></th></tr>` +
       (d.actions.length ? d.actions.map((a) => `<tr data-action="${esc(a.id)}"><td><b>${esc(a.title)}</b><br><span class="small">${esc(a.summary)}</span>${a.params.map((p) => ` <label class="small">${esc(p.name)} <input data-param="${esc(p.name)}" value="${esc(p.default)}" pattern="${esc(p.pattern)}"></label>`).join('')}${a.note ? `<br><span class="dim">${esc(a.note)}</span>` : ''}</td><td class="sub">${esc(a.target_label)}</td><td>${pill(a.policy, a.policy)}</td><td class="num dim">${a.last ? `<a href="/actions/runs/${a.last.id}" title="exit ${a.last.exit}">${age(a.last.ts)}</a>${a.last.exit === 0 ? '' : a.last.exit == null ? ' ⋯' : ' ✗'}` : '—'}</td><td class="r"><button class="btn sm ${a.policy === 'free' ? 'primary' : ''}" data-run="${esc(a.id)}">${a.policy === 'confirm' ? 'Run…' : 'Run'}</button></td></tr>`).join('') : '<tr><td colspan="5" class="empty">The catalog is empty. Add entries to config/catalog.yml.</td></tr>');
-    if (changed('catalog-bound', d.actions.map((a) => a.id))) bindRuns(d.actions);
+      bindRuns(d.actions);
+    }
     $('runs-meta').textContent = d.running.length ? `${d.running.length} running` : '';
     $('runs-t').innerHTML = `<tr><th class="num">#</th><th>Action</th><th>Target</th><th>Started</th><th class="num">Took</th><th>Exit</th></tr>` +
       (d.runs.length ? d.runs.map((r) => `<tr><td class="num"><a href="/actions/runs/${r.id}">${r.id}</a></td><td>${esc(r.action_id)}</td><td class="sub">${esc(r.target)}</td><td class="dim">${when(r.started_ts)}</td><td class="num">${r.finished_ts ? span(r.finished_ts - r.started_ts) : '⋯'}</td><td>${r.exit_code == null ? pill('info', 'running') : r.exit_code === 0 ? pill('good', '0') : pill('crit', String(r.exit_code))}</td></tr>`).join('') : '<tr><td colspan="6" class="empty">Nothing has run yet.</td></tr>');
