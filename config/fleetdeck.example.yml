@@ -190,7 +190,7 @@ github:
     - {repo: teslamate-org/teslamate, running_from: {dockhand: {env: 4, container: teslamate}}}
 
 links:
-  pdm: https://10.0.0.200:8443
+  pdm: https://10.0.0.181:8443
   dockhand: http://10.0.0.6:3030
   beszel: http://10.0.0.6:8090
   kuma: http://10.0.0.6:3010
