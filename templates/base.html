@@ -5,13 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ title }} · {{ app_title }}</title>
 <meta name="confirm-token" content="{{ token }}">
+<link rel="icon" href="/static/brand/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/brand/favicon-32x32.png">
+<link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
+<link rel="manifest" href="/static/brand/site.webmanifest">
+<meta name="theme-color" content="#0f1318">
 <link rel="stylesheet" href="/static/vendor/uplot/uPlot.min.css">
 <link rel="stylesheet" href="/static/css/fleetdeck.css">
 </head>
 <body>
 <div class="app">
   <aside class="rail">
-    <div class="brand">{{ app_title }}<small>{{ sites }}</small></div>
+    <div class="brand"><a href="/" title="Overview"><img src="/static/brand/logo.png" srcset="/static/brand/logo@2x.png 2x" width="140" height="40" alt="{{ app_title }}"></a><small>{{ sites }}</small></div>
     <nav aria-label="Sections">
       {% for id, label, href in pages %}
       <a href="{{ href }}" data-nav="{{ id }}"{% if id == page %} aria-current="page"{% endif %}><span>{{ label }}</span><span class="n{% if nav[id].warn %} warn{% endif %}">{{ nav[id].n }}</span></a>
