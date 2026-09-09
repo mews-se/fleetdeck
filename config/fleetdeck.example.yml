@@ -4,7 +4,7 @@
 title: fleetdeck
 
 sites:
-  home: {name: home}
+  home: {name: Stockzell}
   brk:  {name: BRK}
 
 hosts:
