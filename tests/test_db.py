@@ -1,3 +1,5 @@
+import threading
+
 from app.db import Database
 
 
@@ -77,3 +79,32 @@ def test_prune_and_speedtests():
     assert [r["id"] for r in db.speedtests("home", 0)] == [2]
     assert db.last_speedtest_ts("home") == now - 3600
     assert db.series("x", 0) == [(now, 2.0)]
+
+
+def test_concurrent_readers(tmp_path):
+    """Request handlers read from a thread pool while the scheduler writes."""
+    db = Database(tmp_path / "c.db")
+    db.put_snapshots("s", {f"k{i}": {"i": i, "name": f"n{i}"} for i in range(200)})
+    errors = []
+
+    def read():
+        try:
+            for _ in range(150):
+                rows = db.get_snapshots("s")
+                assert len(rows) == 200
+                assert all(v["name"] == f"n{v['i']}" for _k, _ts, v in rows)
+                assert db.get_snapshot("s", "k5")["i"] == 5
+                db.runs(5)
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    threads = [threading.Thread(target=read) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for i in range(100):
+        db.put_snapshot("s", "k5", {"i": 5, "name": "n5"})
+        db.add_samples([("x", i, 1.0)])
+    for t in threads:
+        t.join()
+    assert errors == []
+    db.close()

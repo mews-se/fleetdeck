@@ -1,7 +1,9 @@
 """SQLite store in WAL mode.
 
 One writer: the scheduler and the runner both go through the lock below.
-Request handlers only read. Timestamps are UTC integers.
+Request handlers only read, each thread on a connection of its own, because
+a sqlite3 connection cannot be stepped from two threads at once. Timestamps
+are UTC integers.
 """
 
 import json
@@ -120,14 +122,36 @@ class Database:
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self.lock = threading.Lock()
-        self.conn = sqlite3.connect(self.path, check_same_thread=False, isolation_level=None)
-        self.conn.row_factory = sqlite3.Row
+        self.conn = self._connect()
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
-        self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.executescript(SCHEMA)
+        self._local = threading.local()
+        self._readers: list[sqlite3.Connection] = []
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.path, check_same_thread=False, isolation_level=None)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout=5000")
+        return conn
+
+    def _reader(self) -> sqlite3.Connection:
+        # an in-memory database is only reachable through the connection
+        # that created it
+        if self.path == ":memory:":
+            return self.conn
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = self._local.conn = self._connect()
+            with self.lock:
+                self._readers.append(conn)
+        return conn
 
     def close(self):
+        with self.lock:
+            readers, self._readers = self._readers, []
+        for conn in readers:
+            conn.close()
         self.conn.close()
 
     def _write(self, sql: str, params=()):
@@ -142,10 +166,10 @@ class Database:
             self.conn.executemany(sql, rows)
 
     def _query(self, sql: str, params=()) -> list[sqlite3.Row]:
-        return self.conn.execute(sql, params).fetchall()
+        return self._reader().execute(sql, params).fetchall()
 
     def _one(self, sql: str, params=()) -> sqlite3.Row | None:
-        return self.conn.execute(sql, params).fetchone()
+        return self._reader().execute(sql, params).fetchone()
 
     # source runs
 
