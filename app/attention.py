@@ -15,7 +15,7 @@ DISK_CRIT = 95
 ERROR_GRACE = 900
 THREAD_WINDOW = 86400
 SPEEDTEST_MIN_RESULTS = 5
-SPEEDTEST_FAIL_RATE = 0.2
+SPEEDTEST_FAIL_RATE = 0.4
 
 
 def _disk_item(key: tuple, what: str, pct: float, detail: str, items: dict):

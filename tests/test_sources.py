@@ -339,8 +339,11 @@ def test_attention_rules(cfg):
     db.put_snapshot("dockhand.updates", "updates:1",
                     {"env": 1, "host": "dellpi", "items": [{"name": "beszel"}]})
     db.upsert_speedtests("home", [(i, NOW - i * 60, None, None, None,
-                                   "failed" if i < 4 else "completed", None)
+                                   "failed" if i < 6 else "completed", None)
                                   for i in range(1, 11)])
+    db.upsert_speedtests("brk", [(i, NOW - i * 60, None, None, None,
+                                  "failed" if i < 4 else "completed", None)
+                                 for i in range(1, 11)])
     db.upsert_thread("o/r", 1, "pr", "t", "open", "a", 0, "u", None, ts=NOW - 100)
     db.upsert_thread("o/r", 1, "pr", "t", "open", "b", 1, "u", None, ts=NOW - 50)
     for ts in (NOW - 2000, NOW - 1000, NOW - 10):
@@ -354,7 +357,8 @@ def test_attention_rules(cfg):
     assert items[("pve.home", "storage:sda")]["severity"] == "crit"
     assert ("pve.home", "storage:nas-backup") not in keys
     assert ("dockhand", "updates:1") in keys
-    assert ("speedtest", "home") in keys and "30%" in items[("speedtest", "home")]["title"]
+    assert ("speedtest", "home") in keys and "50%" in items[("speedtest", "home")]["title"]
+    assert ("speedtest", "brk") not in keys
     assert ("github", "o/r#1") in keys
     assert ("source", "kuma") in keys and ("source", "beszel") not in keys
     # nas is down but inside the window only counts; outside it is expected
