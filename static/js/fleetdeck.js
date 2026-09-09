@@ -380,14 +380,20 @@ const FD = (() => {
   }
 
   /* ---------- page plumbing ---------- */
-  let page = null, data = null, render = null, view = null;
+  let page = null, data = null, render = null, view = null, stale = false, retry = null;
   async function refresh() {
     try {
       const r = await fetch(view || `/api/view/${page}`);
-      if (!r.ok) return;
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       data = await r.json();
       R[render](data);
-    } catch (e) { /* offline; the next tick tries again */ }
+      if (stale) { stale = false; clock(); }
+    } catch (e) {
+      // say so next to the clock and try once more soon; the interval
+      // covers the rest
+      if (!stale) { stale = true; clock(); }
+      if (!retry) retry = setTimeout(() => { retry = null; refresh(); }, 3000);
+    }
   }
   async function refreshNav() {
     try {
@@ -398,7 +404,12 @@ const FD = (() => {
       $('chips').innerHTML = Object.entries(chips).map(([n, c]) => `<span class="chip" data-chip="${n}"><span class="dot ${c.kind}"></span>${esc(c.text)}</span>`).join('');
     } catch (e) { /* same */ }
   }
-  function clock() { const el = $('clock'); if (el) el.textContent = new Date().toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }); }
+  function clock() {
+    const el = $('clock');
+    if (!el) return;
+    el.textContent = new Date().toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) + (stale ? ' · not refreshed' : '');
+    el.classList.toggle('stale', stale);
+  }
   function events() {
     const src = new EventSource('/api/events');
     src.addEventListener('attention', () => { refreshNav(); if (page === 'overview') refresh(); });
