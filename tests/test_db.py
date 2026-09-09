@@ -1,3 +1,4 @@
+import sqlite3
 import threading
 
 from app.db import Database
@@ -45,6 +46,45 @@ def test_attention_lifecycle():
     assert len(rows) == 1 and rows[0]["severity"] == "crit" and rows[0]["first_seen"] == 100
     opened, cleared = db.sync_attention({}, ts=300)
     assert cleared == [("s", "k")] and db.open_attention() == []
+
+
+def test_attention_marks():
+    db = Database(":memory:")
+    item = {"severity": "warn", "title": "x", "detail": None}
+    db.sync_attention({("s", "k"): item}, ts=100)
+    row_id = db.open_attention()[0]["id"]
+    assert db.ack_attention(row_id, "read", ts=110)
+    row = db.open_attention()[0]
+    assert row["ack"] == "read" and row["acked_ts"] == 110
+    assert db.unacked_attention() == []
+    # the same severity keeps the mark, a worse one takes it off
+    assert db.sync_attention({("s", "k"): item}, ts=120) == ([], [])
+    assert db.open_attention()[0]["ack"] == "read"
+    opened, _ = db.sync_attention({("s", "k"): dict(item, severity="crit")}, ts=130)
+    assert opened == [("s", "k")]
+    assert db.open_attention()[0]["ack"] is None and len(db.unacked_attention()) == 1
+    assert db.ack_attention(row_id, "resolved", ts=140)
+    assert db.ack_attention(row_id, None)
+    assert db.open_attention()[0]["acked_ts"] is None
+    db.sync_attention({}, ts=150)
+    assert db.ack_attention(row_id, "read") is False
+    assert db.ack_attention(999, "read") is False
+
+
+def test_attention_columns_added_to_old_file(tmp_path):
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE attention (id INTEGER PRIMARY KEY, source TEXT NOT NULL,"
+                 " key TEXT NOT NULL, severity TEXT NOT NULL, title TEXT NOT NULL, detail TEXT,"
+                 " first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL, cleared_ts INTEGER)")
+    conn.execute("INSERT INTO attention (source, key, severity, title, first_seen, last_seen)"
+                 " VALUES ('s', 'k', 'warn', 'x', 1, 1)")
+    conn.commit()
+    conn.close()
+    db = Database(path)
+    row = db.open_attention()[0]
+    assert row["ack"] is None and db.unacked_attention() == [row]
+    db.close()
 
 
 def test_threads_report_changes():

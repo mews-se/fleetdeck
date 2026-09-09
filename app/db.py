@@ -85,7 +85,9 @@ CREATE TABLE IF NOT EXISTS attention (
     detail TEXT,
     first_seen INTEGER NOT NULL,
     last_seen INTEGER NOT NULL,
-    cleared_ts INTEGER
+    cleared_ts INTEGER,
+    ack TEXT,
+    acked_ts INTEGER
 );
 CREATE INDEX IF NOT EXISTS attention_cleared ON attention (cleared_ts);
 
@@ -102,6 +104,14 @@ CREATE TABLE IF NOT EXISTS action_runs (
     output_file TEXT
 );
 """
+
+# columns added after the first release; CREATE TABLE IF NOT EXISTS skips them
+# on an existing file
+MIGRATIONS = (
+    ("attention", "ack", "TEXT"),
+    ("attention", "acked_ts", "INTEGER"),
+)
+SEVERITY_RANK = {"crit": 0, "warn": 1, "info": 2}
 
 DAY = 86400
 RETENTION = {
@@ -126,6 +136,10 @@ class Database:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.executescript(SCHEMA)
+        for table, column, kind in MIGRATIONS:
+            present = {r["name"] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+            if column not in present:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
         self._local = threading.local()
         self._readers: list[sqlite3.Connection] = []
 
@@ -370,14 +384,15 @@ class Database:
     def sync_attention(self, active: dict[tuple[str, str], dict], ts: int | None = None):
         """Open rows for new items, refresh the ones still active, clear the rest.
 
-        Returns (opened, cleared) as lists of (source, key)."""
+        Returns (opened, cleared) as lists of (source, key). A marked item
+        whose severity got worse loses its mark and counts as opened."""
         ts = ts or now()
         opened, cleared = [], []
         with self.lock:
             self.conn.execute("BEGIN")
             try:
                 rows = self.conn.execute(
-                    "SELECT id, source, key, severity, title, detail FROM attention"
+                    "SELECT id, source, key, severity, ack FROM attention"
                     " WHERE cleared_ts IS NULL"
                 ).fetchall()
                 seen = set()
@@ -391,9 +406,14 @@ class Database:
                         )
                         cleared.append(k)
                     else:
+                        sets = "severity = ?, title = ?, detail = ?, last_seen = ?"
+                        worse = (SEVERITY_RANK.get(item["severity"], 3)
+                                 < SEVERITY_RANK.get(r["severity"], 3))
+                        if r["ack"] and worse:
+                            sets += ", ack = NULL, acked_ts = NULL"
+                            opened.append(k)
                         self.conn.execute(
-                            "UPDATE attention SET severity = ?, title = ?, detail = ?,"
-                            " last_seen = ? WHERE id = ?",
+                            f"UPDATE attention SET {sets} WHERE id = ?",
                             (item["severity"], item["title"], item.get("detail"), ts, r["id"]),
                         )
                 for k, item in active.items():
@@ -418,6 +438,18 @@ class Database:
         return [dict(r) for r in self._query(
             f"SELECT * FROM attention WHERE cleared_ts IS NULL ORDER BY {order}, first_seen"
         )]
+
+    def unacked_attention(self) -> list[dict]:
+        return [a for a in self.open_attention() if not a["ack"]]
+
+    def ack_attention(self, item_id: int, kind: str | None, ts: int | None = None) -> bool:
+        """Mark an open item read or resolved; None takes the mark off again."""
+        with self.lock:
+            cur = self.conn.execute(
+                "UPDATE attention SET ack = ?, acked_ts = ? WHERE id = ? AND cleared_ts IS NULL",
+                (kind, (ts or now()) if kind else None, item_id),
+            )
+            return cur.rowcount == 1
 
     # action runs
 

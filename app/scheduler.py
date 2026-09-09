@@ -88,7 +88,7 @@ class Scheduler:
                     "attention",
                     {"opened": [f"{s}:{k}" for s, k in opened],
                      "cleared": [f"{s}:{k}" for s, k in cleared],
-                     "open": len(self.db.open_attention())},
+                     "open": len(self.db.unacked_attention())},
                 )
 
     async def _housekeeping(self):

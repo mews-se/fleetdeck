@@ -19,7 +19,9 @@ linked; fleetdeck is the page you open first.
 
 - **Overview**: what needs attention, the NAS window, the last speed test,
   what moved upstream in the last day, quick actions and the state of every
-  collector.
+  collector. An attention item can be marked read (it stays but stops
+  counting) or resolved (hidden until it clears); either mark comes off by
+  itself if the item gets worse.
 - **Hosts**: every Beszel agent with CPU, memory, disk, temperature and uptime,
   joined with the host list from the config so a test VM that is off by rule
   shows grey, not red. Each host has its own page with 24 hours of curves, the

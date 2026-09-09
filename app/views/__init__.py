@@ -50,10 +50,10 @@ def nav(state: State) -> dict:
     c = containers.counts(state)
     n = network.counts(state)
     u = upstream.counts(state)
+    fresh = state.db.unacked_attention()
     return {
-        "overview": {"n": len(state.db.open_attention()) or "", "warn": bool(
-            [a for a in state.db.open_attention() if a["severity"] in ("warn", "crit")]
-        )},
+        "overview": {"n": len(fresh) or "",
+                     "warn": any(a["severity"] in ("warn", "crit") for a in fresh)},
         "hosts": {"n": f"{h['up']}/{h['total']}", "warn": h["down"] > 0},
         "guests": {"n": str(g["running"]), "warn": False},
         "containers": {"n": f"{c['updates']}↑" if c["updates"] else str(c["running"]),

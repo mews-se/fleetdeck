@@ -118,9 +118,11 @@ class Console:
                 kind = "off"
             chips["nas"] = {"text": text, "kind": kind}
         attention = self.db.open_attention()
-        worst = next((a["severity"] for a in attention), None)
+        fresh = [a for a in attention if not a["ack"]]
+        worst = next((a["severity"] for a in fresh), None)
         chips["attention"] = {
-            "text": f"{len(attention)} need attention" if attention else "nothing needs attention",
+            "text": f"{len(fresh)} need attention" if fresh
+            else "nothing new needs attention" if attention else "nothing needs attention",
             "kind": {"crit": "crit", "warn": "warn", "info": "info"}.get(worst, "good"),
         }
         sources = self.db.source_status()
@@ -144,6 +146,16 @@ def same_origin(request: Request):
     if origin and host and origin.split("://", 1)[-1] == host:
         return
     raise HTTPException(status_code=403, detail="cross-site request refused")
+
+
+async def json_body(request: Request) -> dict:
+    try:
+        body = await request.json() if await request.body() else {}
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="bad JSON") from None
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="bad JSON")
+    return body
 
 
 def sse(gen):
@@ -269,12 +281,7 @@ def create_app(settings: Settings | None = None, run_scheduler: bool = True) -> 
         action = console.runner.get(action_id)
         if action is None:
             raise HTTPException(status_code=404, detail="no such action")
-        try:
-            body = await request.json() if await request.body() else {}
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=400, detail="bad JSON") from None
-        if not isinstance(body, dict):
-            raise HTTPException(status_code=400, detail="bad JSON")
+        body = await json_body(request)
         params = body.get("params") or {}
         if not isinstance(params, dict) or any(not isinstance(v, str) for v in params.values()):
             raise HTTPException(status_code=400, detail="params must map names to strings")
@@ -294,6 +301,18 @@ def create_app(settings: Settings | None = None, run_scheduler: bool = True) -> 
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
         return JSONResponse({"run_id": run_id}, status_code=202)
+
+    @app.post("/api/attention/{item_id}/ack")
+    async def api_ack(request: Request, item_id: int):
+        same_origin(request)
+        kind = (await json_body(request)).get("kind")
+        if kind not in ("read", "resolved", None):
+            raise HTTPException(status_code=400, detail="kind must be read, resolved or null")
+        if not console.db.ack_attention(item_id, kind):
+            raise HTTPException(status_code=404, detail="no open item with that id")
+        console.events.publish("attention", {"opened": [], "cleared": [],
+                                             "open": len(console.db.unacked_attention())})
+        return {"ok": True}
 
     @app.get("/api/actions/runs/{run_id}/stream")
     def api_run_stream(run_id: int):

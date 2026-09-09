@@ -137,13 +137,39 @@ const FD = (() => {
     ? `<select data-target>${a.targets.map((t) => `<option value="${esc(t.id)}">${esc(t.label)}</option>`).join('')}</select>`
     : esc(a.target_label);
 
+  /* ---------- needs attention ---------- */
+  // read = stays in the list but stops counting; resolved = hidden until the
+  // condition clears. Either comes back on its own if the item gets worse.
+  let showResolved = false;
+  const attnRow = (a) => `<li class="${esc(a.ack || '')}"><span class="dot ${a.severity}"></span><div><div class="t">${esc(a.title)}</div><div class="d">${esc(a.detail || '')}${a.detail ? ' · ' : ''}since ${when(a.first_seen)}${a.ack ? ` · ${a.ack} ${age(a.acked_ts)} ago` : ''}</div></div><span class="src">${esc(a.source)}<span class="act">${a.ack
+    ? `<button class="btn sm" data-ack="${a.id}" title="Take the mark off">Undo</button>`
+    : `<button class="btn sm" data-ack="${a.id}" data-kind="read" title="Keep it in the list, stop counting it">Read</button><button class="btn sm" data-ack="${a.id}" data-kind="resolved" title="Hide it until it clears">Resolve</button>`}</span></span></li>`;
+  async function ack(id, kind) {
+    try {
+      const r = await fetch(`/api/attention/${id}/ack`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind }) });
+      if (!r.ok) return;
+    } catch (e) { return; }
+    refresh();
+    refreshNav();
+  }
+
   /* ---------- renderers ---------- */
   const R = {};
 
   R.overview = (d) => {
     $('stats').innerHTML = d.stats.map((s) => `<div class="stat ${s.kind || ''}"><span class="l">${esc(s.label)}</span><span class="v">${esc(s.value)}${s.of != null ? `<small>/${esc(s.of)}</small>` : ''}${s.unit ? ` <small>${esc(s.unit)}</small>` : ''}</span><span class="s">${esc(s.sub)}</span></div>`).join('');
-    $('attn-meta').textContent = d.attention.length ? `${d.attention.length} item${d.attention.length === 1 ? '' : 's'}` : 'all clear';
-    $('attn').innerHTML = d.attention.length ? d.attention.map((a) => `<li><span class="dot ${a.severity}"></span><div><div class="t">${esc(a.title)}</div><div class="d">${esc(a.detail || '')}${a.detail ? ' · ' : ''}since ${when(a.first_seen)}</div></div><span class="src">${esc(a.source)}</span></li>`).join('') : '<li class="empty">Nothing needs attention.</li>';
+    const items = d.attention, fresh = items.filter((a) => !a.ack), read = items.filter((a) => a.ack === 'read'), resolved = items.filter((a) => a.ack === 'resolved');
+    const shown = showResolved ? items : items.filter((a) => a.ack !== 'resolved');
+    const parts = [];
+    if (read.length || resolved.length) parts.push(`${fresh.length} new`);
+    else if (items.length) parts.push(`${items.length} item${items.length === 1 ? '' : 's'}`);
+    if (read.length) parts.push(`${read.length} read`);
+    if (resolved.length) parts.push(`<a href="#" data-resolved>${resolved.length} resolved · ${showResolved ? 'hide' : 'show'}</a>`);
+    $('attn-meta').innerHTML = parts.join(' · ') || 'all clear';
+    $('attn').innerHTML = shown.length ? shown.map(attnRow).join('') : `<li class="empty">${items.length ? 'Nothing new.' : 'Nothing needs attention.'}</li>`;
+    $('attn').querySelectorAll('[data-ack]').forEach((b) => { b.onclick = () => ack(b.dataset.ack, b.dataset.kind || null); });
+    const tg = $('attn-meta').querySelector('[data-resolved]');
+    if (tg) tg.onclick = (e) => { e.preventDefault(); showResolved = !showResolved; R.overview(d); };
     const nas = d.nas;
     if (nas && nas.window) {
       $('nas-panel').hidden = false;

@@ -96,7 +96,10 @@ td.r{text-align:right}
 .attn .dot{margin-top:6px}
 .attn .t{font-weight:500}
 .attn .d{color:var(--ink-2);font-size:12px}
-.attn .src{font:11.5px var(--mono);color:var(--ink-3);padding-top:2px;text-align:right}
+.attn .src{font:11.5px var(--mono);color:var(--ink-3);padding-top:2px;text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:5px}
+.attn .act{display:flex;gap:4px}
+.attn .act .btn{padding:1px 6px;font:11px var(--sans);color:var(--ink-2)}
+.attn li.read,.attn li.resolved{opacity:.55}
 .empty{color:var(--ink-3);font-size:12.5px;padding:6px 0}
 .btn{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:6px;border:1px solid var(--line);background:var(--raised);color:var(--ink);font-size:12.5px;white-space:nowrap}
 .btn:hover{border-color:var(--ink-3);text-decoration:none}

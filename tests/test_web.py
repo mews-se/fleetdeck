@@ -209,6 +209,34 @@ def test_bad_requests(client):
     assert client.get("/api/actions/runs/999/stream").status_code == 404
 
 
+def test_attention_marks(client):
+    db = client.app.state.console.db
+    db.sync_attention({("s", "a"): {"severity": "crit", "title": "a", "detail": None},
+                       ("s", "b"): {"severity": "info", "title": "b", "detail": None}})
+    items = client.get("/api/view/overview").json()["attention"]
+    assert [a["ack"] for a in items] == [None, None]
+    assert client.get("/api/nav").json()["chips"]["attention"]["text"] == "2 need attention"
+    a, b = items[0]["id"], items[1]["id"]
+    assert client.post(f"/api/attention/{a}/ack", json={"kind": "read"}).status_code == 403
+    assert client.post(f"/api/attention/{a}/ack", headers=SAME,
+                       json={"kind": "read"}).status_code == 200
+    n = client.get("/api/nav").json()
+    assert n["nav"]["overview"] == {"n": 1, "warn": False}
+    assert n["chips"]["attention"]["kind"] == "info"
+    assert client.post(f"/api/attention/{b}/ack", headers=SAME,
+                       json={"kind": "resolved"}).status_code == 200
+    n = client.get("/api/nav").json()
+    assert n["nav"]["overview"]["n"] == ""
+    assert n["chips"]["attention"]["text"] == "nothing new needs attention"
+    assert client.get("/api/view/overview").json()["attention"][1]["ack"] == "resolved"
+    assert client.post(f"/api/attention/{a}/ack", headers=SAME,
+                       json={"kind": "later"}).status_code == 400
+    assert client.post("/api/attention/999/ack", headers=SAME,
+                       json={"kind": "read"}).status_code == 404
+    assert client.post(f"/api/attention/{a}/ack", headers=SAME, json={}).status_code == 200
+    assert client.get("/api/nav").json()["nav"]["overview"] == {"n": 1, "warn": True}
+
+
 def test_release_state():
     from app.views.upstream import release_state
     assert release_state("v2.15.1", "2.15.1") == "current"
