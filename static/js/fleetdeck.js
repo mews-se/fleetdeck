@@ -60,17 +60,33 @@ const FD = (() => {
 
   /* ---------- action runs ---------- */
   let es = null;
-  function termLine(term, text) {
+  function termSpan(text) {
     const cls = text.startsWith('$ ') || text.startsWith('POST ') ? 'p' : text === 'exit 0' || text === 'task OK' ? 'ok' : /^(exit [1-9]|error:|killed|task .*(?:ERROR|FAIL)|\d{3}:)/.test(text) ? 'bad' : text.startsWith('waiting') || text.startsWith('task ') ? 'c' : '';
     const el = document.createElement('span');
     el.className = cls;
     el.textContent = text + '\n';
-    term.appendChild(el);
+    return el;
+  }
+  // lines are appended in batches: a reflow per line freezes the tab on a
+  // long backlog (a timer, not requestAnimationFrame, so hidden tabs keep up)
+  const pending = new Map();
+  function flushLines(term) {
+    const lines = pending.get(term) || [];
+    pending.delete(term);
+    if (!lines.length) return;
+    const frag = document.createDocumentFragment();
+    lines.forEach((t) => frag.appendChild(termSpan(t)));
+    term.appendChild(frag);
     term.scrollTop = term.scrollHeight;
+  }
+  function termLine(term, text) {
+    if (!pending.has(term)) { pending.set(term, []); setTimeout(() => flushLines(term), 16); }
+    pending.get(term).push(text);
   }
   function stream(runId, term, meta, label) {
     if (es) es.close();
     term.innerHTML = '';
+    pending.delete(term);
     if (meta) meta.textContent = `${label} · run #${runId}`;
     es = new EventSource(`/api/actions/runs/${runId}/stream`);
     es.addEventListener('line', (e) => termLine(term, JSON.parse(e.data)));
