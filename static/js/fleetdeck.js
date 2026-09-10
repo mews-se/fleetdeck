@@ -34,6 +34,9 @@ const FD = (() => {
   const statePill = (s) => pill(stateKind[s] || 'off', s || 'unknown');
 
   const charts = new Map();
+  const tickTime = (t, incr) => new Date(t * 1000)[incr >= 86400 ? 'toLocaleDateString' : 'toLocaleTimeString'](undefined, incr >= 86400 ? { weekday: 'short' } : { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const tickNum = (splits) => splits.map((v) => num(v, splits.some((x) => x % 1) ? 1 : 0));
+  const val = (v, unit) => v == null ? '—' : num(v, Math.abs(v) < 10 && v % 1 ? 1 : 0) + unit;
   function chart(id, xs, series, opts = {}) {
     const el = $(id);
     if (!el || !window.uPlot) return;
@@ -42,16 +45,43 @@ const FD = (() => {
     if (!xs || xs.length < 2) { el.innerHTML = '<div class="empty">no data yet</div>'; return; }
     const colors = [cssVar('--data'), cssVar('--data-2')];
     const height = el.clientHeight || 64;
+    const unit = opts.unit || '', names = opts.names || [];
+    const axis = { stroke: cssVar('--ink-3'), font: `10px ${cssVar('--mono')}`, ticks: { show: false }, grid: { show: false } };
+    const range = (u, min, max) => {
+      if (opts.max != null) return [opts.min ?? 0, opts.max];
+      if (min == null || max == null) return [0, 1];
+      const pad = (max - min || Math.abs(max) || 1) * 0.15;
+      return [opts.min ?? min - pad, max + pad];
+    };
+    let tip = null;
     const u = new uPlot({
       width: el.clientWidth || 320,
       height,
-      cursor: { show: false },
+      cursor: { y: false, drag: { x: false, y: false }, points: { size: 6 } },
       legend: { show: false },
-      padding: [4, 4, 4, 4],
-      scales: { x: { time: true }, y: { range: (u, min, max) => [opts.min ?? Math.min(min, max), opts.max ?? max] } },
-      axes: [{ show: false }, { show: false }],
+      padding: opts.bare ? [4, 4, 4, 4] : [6, 18, 0, 0],
+      scales: { x: { time: true }, y: { range } },
+      axes: opts.bare ? [{ show: false }, { show: false }] : [
+        { ...axis, size: 18, gap: 2, values: (u, splits, ax, space, incr) => splits.map((t) => tickTime(t, incr)) },
+        { ...axis, size: 36, gap: 4, space: 22, grid: { show: true, stroke: cssVar('--line-2'), width: 1 }, values: (u, splits) => tickNum(splits) },
+      ],
       series: [{}, ...series.map((s, i) => ({ stroke: colors[i], width: 2, fill: i === 0 ? colors[i] + '22' : undefined, points: { show: false }, spanGaps: true }))],
+      hooks: {
+        setCursor: [(u) => {
+          const i = u.cursor.idx;
+          if (!tip) return;
+          if (i == null) { tip.hidden = true; return; }
+          tip.innerHTML = `<b>${series.map((s, k) => `${names[k] ? esc(names[k]) + ' ' : ''}${val(s[i], unit)}`).join(' · ')}</b><span>${when(u.data[0][i])}</span>`;
+          tip.style.left = `${u.cursor.left}px`;
+          tip.classList.toggle('flip', u.cursor.left > u.over.clientWidth / 2);
+          tip.hidden = false;
+        }],
+      },
     }, [xs, ...series], el);
+    tip = document.createElement('div');
+    tip.className = 'tip';
+    tip.hidden = true;
+    u.over.appendChild(tip);
     charts.set(id, u);
     if (!el.dataset.observed) {
       el.dataset.observed = '1';
@@ -185,7 +215,7 @@ const FD = (() => {
     const w = d.wan;
     if (w) {
       $('wan-meta').textContent = `speedtest-tracker ${w.id} · 7 days`;
-      chart('wan-chart', w.series[0], [w.series[1]], { min: 0 });
+      chart('wan-chart', w.series[0], [w.series[1]], { min: 0, unit: ' Mbit/s', names: ['↓'], bare: true });
       const l = w.latest;
       $('wan-kv').innerHTML = l ? `<dt>Last test ${when(l.created_at)}</dt><dd>${l.status === 'completed' ? `${num(l.download)} ↓ · ${num(l.upload)} ↑ Mbit/s · ${num(l.ping, 1)} ms` : esc(l.status)}</dd><dt>Last 24 h</dt><dd>${w.day.count} tests · ${w.day.failed} failed</dd><dt>7 days</dt><dd>min ${num(w.week.min)} · max ${num(w.week.max)} Mbit/s</dd>` : '<dt>No results</dt><dd>—</dd>';
     } else {
@@ -308,7 +338,7 @@ const FD = (() => {
     $('ag-meta').textContent = a.ts ? `${a.status.version || ''} · ${age(a.ts)} ago` : 'not read yet';
     if (s.hourly_queries) {
       const n = s.hourly_queries.length, t0 = Math.floor(nowS() / 3600) * 3600 - (n - 1) * 3600;
-      chart('ag-chart', s.hourly_queries.map((_, i) => t0 + i * 3600), [s.hourly_queries, s.hourly_blocked || []], { min: 0 });
+      chart('ag-chart', s.hourly_queries.map((_, i) => t0 + i * 3600), [s.hourly_queries, s.hourly_blocked || []], { min: 0, names: ['queries', 'blocked'] });
     } else $('ag-chart').innerHTML = '<div class="empty">no data yet</div>';
     $('ag-kv').innerHTML = a.ts ? `<dt>Queries 24 h</dt><dd>${num(s.queries)}</dd><dt>Blocked</dt><dd>${num(a.blocked_pct, 1)} %</dd><dt>Upstream avg</dt><dd>${num(s.avg_ms)} ms</dd><dt>Top blocked</dt><dd>${(s.top_blocked || []).slice(0, 3).map((x) => esc(x.name)).join(' · ') || '—'}</dd><dt>Top clients</dt><dd>${(s.top_clients || []).slice(0, 3).map((x) => `${esc(x.name)} (${x.count})`).join(' · ') || '—'}</dd>${a.url ? `<dt></dt><dd><a href="${esc(a.url)}" target="_blank" rel="noopener">open AdGuard Home</a></dd>` : ''}` : '';
     $('st').innerHTML = d.speedtests.map((st) => `<div class="panel" style="margin-top:16px">
@@ -316,7 +346,7 @@ const FD = (() => {
       <div class="chart tall" id="st-${esc(st.id)}"></div>
       <div class="legend"><span><i class="data"></i>download Mbit/s</span><span><i class="data-2"></i>upload</span><span>${st.week.count} tests · ${st.week.failed} failed · min ${num(st.week.min)} · max ${num(st.week.max)}</span>${st.url ? `<a href="${esc(st.url)}" target="_blank" rel="noopener">open</a>` : ''}</div>
     </div>`).join('');
-    d.speedtests.forEach((st) => chart(`st-${st.id}`, st.series[0], [st.series[1], st.series[2]], { min: 0 }));
+    d.speedtests.forEach((st) => chart(`st-${st.id}`, st.series[0], [st.series[1], st.series[2]], { min: 0, unit: ' Mbit/s', names: ['↓', '↑'] }));
   };
 
   R.upstream = (d) => {
@@ -358,9 +388,9 @@ const FD = (() => {
     const p = d.pve_node;
     if (p) kv += `<dt>PVE</dt><dd>${esc(p.version || '?')} · ${p.running ?? '—'}/${p.guests ?? '—'} guests running · root ${num(p.root_pct)} % · <a href="${esc(p.url)}" target="_blank" rel="noopener">web UI</a> · <a href="/guests">guests</a></dd>`;
     $('sys-kv').innerHTML = kv;
-    chart('ch-cpu', d.series.cpu[0], [d.series.cpu[1]], { min: 0, max: 100 });
-    chart('ch-mem', d.series.mem[0], [d.series.mem[1]], { min: 0, max: 100 });
-    chart('ch-temp', d.series.temp[0], [d.series.temp[1]], { min: 0 });
+    chart('ch-cpu', d.series.cpu[0], [d.series.cpu[1]], { min: 0, max: 100, unit: ' %' });
+    chart('ch-mem', d.series.mem[0], [d.series.mem[1]], { min: 0, max: 100, unit: ' %' });
+    chart('ch-temp', d.series.temp[0], [d.series.temp[1]], { unit: ' °C' });
     const kk = { 0: 'crit', 1: 'good', 2: 'warn', 3: 'off' };
     $('mon-meta').textContent = d.monitors.length ? `Uptime Kuma · ${d.monitors.filter((m) => m.status === 1).length}/${d.monitors.length} up` : 'Uptime Kuma';
     $('mon-t').innerHTML = d.monitors.length ? `<tr><th></th><th>Monitor</th><th>Target</th><th class="num">RTT</th></tr>` + d.monitors.map((m) => `<tr><td>${dot(kk[m.status] || 'off')}</td><td><b>${esc(m.name)}</b><br><span class="small">${esc(m.type || '')}</span></td><td class="mono">${esc(m.url || [m.hostname, m.port].filter(Boolean).join(':'))}</td><td class="num">${m.status === 1 && m.rtt != null ? `${num(m.rtt)} ms` : esc(m.state || '')}</td></tr>`).join('') : '<tr><td class="empty">No monitor points at this host.</td></tr>';
