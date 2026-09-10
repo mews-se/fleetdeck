@@ -55,19 +55,25 @@ async def test_beszel(cfg, secrets):
             return httpx.Response(200, json={"token": "tok"})
         if request.headers.get("authorization") != "tok":
             return httpx.Response(401, json={})
+        if request.url.path.endswith("/system_details/records"):
+            return httpx.Response(200, content=fixture("beszel_system_details.json"))
         return httpx.Response(200, content=fixture("beszel_systems.json"))
 
     ctx = make_ctx(cfg, secrets, handler)
     src = beszel.build(ctx)[0][0]
     await src.collect()
     snaps = {k: v for k, _, v in ctx.db.get_snapshots("beszel", "system:")}
-    assert snaps["system:dellpi"]["cpu"] == 4.2 and snaps["system:dellpi"]["temp"] == 41
-    assert snaps["system:dellpi"]["extra_fs"] == {"ssd": 34.2}
-    assert snaps["system:nas"]["status"] == "down"
+    dellpi = snaps["system:dellpi"]
+    assert dellpi["cpu"] == 0.42 and dellpi["temp"] == 45 and dellpi["extra_fs"] == {"sda1": 8.91}
+    assert dellpi["hostname"] == "dellpi" and dellpi["os"] == "Debian GNU/Linux 13 (trixie)"
+    assert dellpi["kernel"] == "6.12.107+deb13-amd64" and dellpi["arch"] == "x86_64"
+    assert dellpi["model"].startswith("Intel(R) Core(TM) i5-10500T")
+    assert dellpi["cores"] == 6 and dellpi["threads"] == 12 and dellpi["memory"] == 16507842560
+    assert snaps["system:nas"]["status"] == "down" and snaps["system:nas"]["os"] == "Synology NAS"
     down_since = snaps["system:nas"]["down_since"]
     assert down_since
     assert ctx.db.latest_sample("beszel.disk.testpi5") is not None
-    assert ctx.db.latest_sample("beszel.temp.testpi5") is None
+    assert ctx.db.latest_sample("beszel.temp.teslamate") is None
     assert ctx.db.latest_sample("beszel.cpu.nas") is None
     await src.collect()
     assert ctx.db.get_snapshot("beszel", "system:nas")["down_since"] == down_since
@@ -75,6 +81,13 @@ async def test_beszel(cfg, secrets):
     src.token = "stale"
     await src.collect()
     assert calls[-1][2] == "tok"
+
+
+def test_beszel_without_details():
+    items = json.loads(fixture("beszel_systems.json"))["items"]
+    snaps, _ = beszel.parse_systems(items, {}, {}, NOW)
+    assert snaps["system:dellpi"]["cpu"] == 0.42
+    assert snaps["system:dellpi"]["hostname"] is None and snaps["system:dellpi"]["os"] is None
 
 
 @pytest.mark.asyncio
@@ -328,8 +341,9 @@ async def test_npm_version(cfg, secrets):
 def test_attention_rules(cfg):
     db = Database(":memory:")
     prev = {}
-    snaps, _ = beszel.parse_systems(json.loads(fixture("beszel_systems.json"))["items"], prev,
-                                    NOW - 600)
+    details = {d["system"]: d for d in json.loads(fixture("beszel_system_details.json"))["items"]}
+    snaps, _ = beszel.parse_systems(json.loads(fixture("beszel_systems.json"))["items"], details,
+                                    prev, NOW - 600)
     db.put_snapshots("beszel", snaps, ts=NOW - 600)
     monitors, _ = kuma.parse_metrics(fixture("kuma_metrics.txt"))
     db.put_snapshots("kuma", {f"monitor:{k}": v for k, v in monitors.items()})

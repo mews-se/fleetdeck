@@ -24,32 +24,37 @@ class BeszelSystems(Source):
         r.raise_for_status()
         self.token = r.json()["token"]
 
-    async def _systems(self):
+    async def _records(self, collection: str, **params):
         return await self.ctx.http.get(
-            f"{self.url}/api/collections/systems/records",
-            params={"perPage": 500, "sort": "name"},
+            f"{self.url}/api/collections/{collection}/records",
+            params={"perPage": 500, **params},
             headers={"Authorization": self.token or ""},
         )
 
     async def collect(self):
         if not self.token:
             await self._auth()
-        r = await self._systems()
+        r = await self._records("systems", sort="name")
         if r.status_code in (401, 403):
             await self._auth()
-            r = await self._systems()
+            r = await self._records("systems", sort="name")
         r.raise_for_status()
+        d = await self._records("system_details")
+        d.raise_for_status()
+        details = {x.get("system"): x for x in d.json().get("items", [])}
         ts = self.ctx.now()
         previous = {k: v for k, _, v in self.ctx.db.get_snapshots("beszel", "system:")}
-        snaps, samples = parse_systems(r.json().get("items", []), previous, ts)
+        snaps, samples = parse_systems(r.json().get("items", []), details, previous, ts)
         self.ctx.db.put_snapshots("beszel", snaps, prefix="system:", ts=ts)
         self.ctx.db.add_samples(samples)
 
 
-def parse_systems(items: list[dict], previous: dict[str, dict], ts: int):
+def parse_systems(items: list[dict], details: dict[str, dict], previous: dict[str, dict],
+                  ts: int):
     snaps, samples = {}, []
     for it in items:
         info = it.get("info") or {}
+        det = details.get(it.get("id")) or {}
         name = it.get("name") or it.get("host")
         key = f"system:{name}"
         status = it.get("status") or "unknown"
@@ -69,14 +74,16 @@ def parse_systems(items: list[dict], previous: dict[str, dict], ts: int):
             "temp": info.get("dt"),
             "uptime": info.get("u"),
             "agent": info.get("v"),
-            "kernel": info.get("k"),
-            "hostname": info.get("h"),
-            "cores": info.get("c"),
-            "threads": info.get("t"),
-            "model": info.get("m"),
             "load": info.get("la"),
-            "os": info.get("os"),
             "extra_fs": info.get("efs"),
+            "hostname": det.get("hostname"),
+            "os": (det.get("os_name") or "").strip() or None,
+            "kernel": det.get("kernel") or None,
+            "model": det.get("cpu"),
+            "cores": det.get("cores"),
+            "threads": det.get("threads"),
+            "arch": det.get("arch"),
+            "memory": det.get("memory"),
         }
         snaps[key] = snap
         if status != "up":

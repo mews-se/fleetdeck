@@ -22,6 +22,7 @@ const FD = (() => {
   const when = (ts) => ts ? new Date(ts * 1000).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) : '—';
   const dateOf = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '—';
   const gb = (b) => b == null ? '—' : `${(b / 1e9).toFixed(b >= 1e11 ? 0 : 1)} GB`;
+  const gib = (b) => b == null ? '—' : `${(b / 2 ** 30).toFixed(1)} GiB`;
   const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
   // Tables with inputs are only rebuilt when their data changed, so a typed
@@ -352,7 +353,7 @@ const FD = (() => {
     const status = h.status === 'up' ? 'agent connected' : h.status === 'down' ? `down ${age(s && s.down_since)}` : h.status === 'off' ? 'off by rule' : h.status === 'noagent' ? 'no agent' : h.status;
     $('sys-meta').textContent = s ? `Beszel ${esc(h.beszel)} · ${age(s.snap_ts)} ago` : 'no agent';
     let kv = `<dt>Status</dt><dd>${esc(status)}</dd>`;
-    if (s) kv += `<dt>Hostname</dt><dd>${esc(s.hostname || '—')}</dd><dt>OS</dt><dd>${esc(s.os || '—')}</dd><dt>Kernel</dt><dd>${esc(s.kernel || '—')}</dd><dt>CPU</dt><dd class="wrap">${esc(s.model || '—')}${s.cores ? ` · ${s.cores} cores` : ''}${s.threads && s.threads !== s.cores ? ` / ${s.threads} threads` : ''}</dd><dt>Load</dt><dd>${(s.load || []).map((x) => num(x, 2)).join(' ') || '—'}</dd><dt>CPU use</dt><dd>${h.status === 'up' ? bar(s.cpu) : '—'}</dd><dt>Memory</dt><dd>${h.status === 'up' ? bar(s.mem) : '—'}</dd><dt>Disk</dt><dd>${h.status === 'up' ? bar(s.disk) : '—'}${Object.entries(s.extra_fs || {}).map(([m, p]) => `<br>${esc(m)} ${bar(p)}`).join('')}</dd><dt>Temp</dt><dd>${h.status === 'up' && s.temp ? `${num(s.temp)} °C` : '—'}</dd><dt>Uptime</dt><dd>${h.status === 'up' ? span(s.uptime) : '—'}</dd><dt>Agent</dt><dd>${esc(s.agent || '—')}</dd>`;
+    if (s) kv += `<dt>Hostname</dt><dd>${esc(s.hostname || '—')}</dd><dt>OS</dt><dd>${esc(s.os || '—')}</dd><dt>Kernel</dt><dd>${esc(s.kernel || '—')}</dd><dt>CPU</dt><dd class="wrap">${esc(s.model || '—')}${s.cores ? ` · ${s.cores} cores` : ''}${s.threads && s.threads !== s.cores ? ` / ${s.threads} threads` : ''}${s.arch ? ` · ${esc(s.arch)}` : ''}</dd><dt>Load</dt><dd>${(s.load || []).map((x) => num(x, 2)).join(' ') || '—'}</dd><dt>CPU use</dt><dd>${h.status === 'up' ? bar(s.cpu) : '—'}</dd><dt>Memory</dt><dd>${h.status === 'up' ? bar(s.mem) : '—'}${s.memory ? ` of ${gib(s.memory)}` : ''}</dd><dt>Disk</dt><dd>${h.status === 'up' ? bar(s.disk) : '—'}${Object.entries(s.extra_fs || {}).map(([m, p]) => `<br>${esc(m)} ${bar(p)}`).join('')}</dd><dt>Temp</dt><dd>${h.status === 'up' && s.temp ? `${num(s.temp)} °C` : '—'}</dd><dt>Uptime</dt><dd>${h.status === 'up' ? span(s.uptime) : '—'}</dd><dt>Agent</dt><dd>${esc(s.agent || '—')}</dd>`;
     else kv += `<dt>Beszel</dt><dd>${h.beszel ? `no data for ${esc(h.beszel)} yet` : 'no agent configured'}</dd>`;
     const p = d.pve_node;
     if (p) kv += `<dt>PVE</dt><dd>${esc(p.version || '?')} · ${p.running ?? '—'}/${p.guests ?? '—'} guests running · root ${num(p.root_pct)} % · <a href="${esc(p.url)}" target="_blank" rel="noopener">web UI</a> · <a href="/guests">guests</a></dd>`;
