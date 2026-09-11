@@ -62,10 +62,24 @@ async def test_beszel(cfg, secrets):
             return httpx.Response(200, json={"items": [
                 {"system": testpi5_id, "name": "nginx.service", "state": 2},
             ]})
+        if request.url.path.endswith("/system_stats/records"):
+            assert request.url.params["filter"] == "type='1m'"
+            assert request.url.params["sort"] == "-created"
+            fresh = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + "Z"
+            stale = "2026-01-01 00:00:00.000Z"
+            return httpx.Response(200, json={"items": [
+                {"system": dellpi_id, "created": fresh,
+                 "stats": {"b": [488803, 116187500], "dio": [1663056, 67301849],
+                           "dios": [51.8, 42162.0, 40.4, 15.9, 403.2, 42213.9]}},
+                {"system": dellpi_id, "created": fresh, "stats": {"b": [1, 1], "dio": [1, 1]}},
+                {"system": testpi5_id, "created": stale, "stats": {"b": [9, 9], "dio": [9, 9]}},
+            ]})
         return httpx.Response(200, content=fixture("beszel_systems.json"))
 
-    testpi5_id = next(i["id"] for i in json.loads(fixture("beszel_systems.json"))["items"]
-                      if i["name"] == "testpi5")
+    from datetime import UTC, datetime
+    systems = json.loads(fixture("beszel_systems.json"))["items"]
+    testpi5_id = next(i["id"] for i in systems if i["name"] == "testpi5")
+    dellpi_id = next(i["id"] for i in systems if i["name"] == "dellpi")
     ctx = make_ctx(cfg, secrets, handler)
     src = beszel.build(ctx)[0][0]
     await src.collect()
@@ -77,6 +91,13 @@ async def test_beszel(cfg, secrets):
     assert snaps["system:testpi5"]["services"] == [39, 1]
     assert snaps["system:testpi5"]["failed_services"] == ["nginx.service"]
     assert ctx.db.latest_sample("beszel.bandwidth.dellpi") is not None
+    # the newest minute row counts, a stale one does not
+    assert dellpi["net_in"] == 116.1875 and dellpi["net_out"] == 0.488803
+    assert dellpi["disk_read"] == 1.663056 and dellpi["disk_write"] == 67.301849
+    assert dellpi["io_util"] == 40.4
+    assert snaps["system:testpi5"]["net_in"] is None and snaps["system:testpi5"]["io_util"] is None
+    assert ctx.db.latest_sample("beszel.disk_write.dellpi")[1] == 67.301849
+    assert ctx.db.latest_sample("beszel.net_in.testpi5") is None
     assert dellpi["hostname"] == "dellpi" and dellpi["os"] == "Debian GNU/Linux 13 (trixie)"
     assert dellpi["kernel"] == "6.12.107+deb13-amd64" and dellpi["arch"] == "x86_64"
     assert dellpi["model"].startswith("Intel(R) Core(TM) i5-10500T")

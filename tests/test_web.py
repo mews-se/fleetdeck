@@ -70,6 +70,8 @@ def test_host_page(client):
     assert d["host"]["status"] == "up" and d["system"]["kernel"] == "6.18"
     assert d["series"]["cpu"] == [[t, t + 60], [10.0, 12.5]]
     assert d["series"]["temp"] == [[], []]
+    assert set(d["series"]) == {"cpu", "mem", "temp", "net_in", "net_out", "disk_read",
+                                "disk_write"}
     assert [m["id"] for m in d["monitors"]] == [7]
     assert d["dns"]["queries"] == 321
     assert d["containers"]["containers"][0]["name"] == "grav"

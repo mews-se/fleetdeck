@@ -1,8 +1,13 @@
 """Beszel hub, read through its PocketBase API with a read-only user."""
 
+from datetime import UTC, datetime
+
 from app.sources import Context, Source
 
-SAMPLED = ("cpu", "mem", "disk", "temp", "bandwidth")
+SAMPLED = ("cpu", "mem", "disk", "temp", "bandwidth", "net_in", "net_out", "disk_read",
+           "disk_write")
+# a minute row older than this belongs to an earlier outage, not to now
+STATS_FRESH = 180
 # systemd_services.state as the hub stores it
 SERVICE_FAILED = 2
 
@@ -53,19 +58,45 @@ class BeszelSystems(Source):
             for row in f.json().get("items", []):
                 failed.setdefault(row.get("system"), []).append(row.get("name"))
         ts = self.ctx.now()
+        # the newest minute row per system; sorted newest first, so the
+        # first one seen for a system wins
+        st = await self._records("system_stats", filter="type='1m'", sort="-created",
+                                 perPage=4 * max(len(items), 1))
+        st.raise_for_status()
+        stats: dict[str, dict] = {}
+        for row in st.json().get("items", []):
+            if row.get("system") not in stats and _fresh(row.get("created"), ts):
+                stats[row["system"]] = row.get("stats") or {}
         previous = {k: v for k, _, v in self.ctx.db.get_snapshots("beszel", "system:")}
-        snaps, samples = parse_systems(items, details, previous, ts, failed)
+        snaps, samples = parse_systems(items, details, previous, ts, failed, stats)
         self.ctx.db.put_snapshots("beszel", snaps, prefix="system:", ts=ts)
         self.ctx.db.add_samples(samples)
 
 
+def _fresh(created: str | None, ts: int) -> bool:
+    try:
+        when = datetime.strptime(created or "", "%Y-%m-%d %H:%M:%S.%fZ")
+    except ValueError:
+        return False
+    return ts - when.replace(tzinfo=UTC).timestamp() < STATS_FRESH
+
+
+def _mbps(pair, index: int) -> float | None:
+    if isinstance(pair, list) and len(pair) == 2 and isinstance(pair[index], int | float):
+        return pair[index] / 1e6
+    return None
+
+
 def parse_systems(items: list[dict], details: dict[str, dict], previous: dict[str, dict],
-                  ts: int, failed: dict[str, list[str]] | None = None):
+                  ts: int, failed: dict[str, list[str]] | None = None,
+                  stats: dict[str, dict] | None = None):
     snaps, samples = {}, []
     for it in items:
         info = it.get("info") or {}
         bb = info.get("bb")
         services = info.get("sv")
+        st = (stats or {}).get(it.get("id")) or {}
+        dios = st.get("dios")
         det = details.get(it.get("id")) or {}
         name = it.get("name") or it.get("host")
         key = f"system:{name}"
@@ -91,6 +122,11 @@ def parse_systems(items: list[dict], details: dict[str, dict], previous: dict[st
             "bandwidth": bb / 1e6 if isinstance(bb, int | float) else None,
             "services": services if isinstance(services, list) and len(services) == 2 else None,
             "failed_services": sorted((failed or {}).get(it.get("id")) or []),
+            "net_out": _mbps(st.get("b"), 0),
+            "net_in": _mbps(st.get("b"), 1),
+            "disk_read": _mbps(st.get("dio"), 0),
+            "disk_write": _mbps(st.get("dio"), 1),
+            "io_util": dios[2] if isinstance(dios, list) and len(dios) > 2 else None,
             "hostname": det.get("hostname"),
             "os": (det.get("os_name") or "").strip() or None,
             "kernel": det.get("kernel") or None,

@@ -434,6 +434,13 @@ const FD = (() => {
       chart('ch-mem', d.series.mem[0], [d.series.mem[1]], { min: 0, max: 100, unit: ' %' });
       chart('ch-temp', d.series.temp[0], [d.series.temp[1]], { unit: ' °C' });
     }
+    // the pairs are sampled together, but a missing value drops a point, so join on time
+    const pair = (id, a, b, names) => {
+      const byT = new Map(b[0].map((t, i) => [t, b[1][i]]));
+      chart(id, a[0], [a[1], a[0].map((t) => byT.get(t) ?? null)], { min: 0, unit: ' MB/s', names });
+    };
+    pair('ch-net', d.series.net_in, d.series.net_out, ['↓', '↑']);
+    pair('ch-disk', d.series.disk_read, d.series.disk_write, ['read', 'write']);
     const kk = { 0: 'crit', 1: 'good', 2: 'warn', 3: 'off' };
     $('mon-meta').textContent = d.monitors.length ? `Uptime Kuma · ${d.monitors.filter((m) => m.status === 1).length}/${d.monitors.length} up` : 'Uptime Kuma';
     $('mon-t').innerHTML = d.monitors.length ? `<tr><th></th><th>Monitor</th><th>Target</th><th class="num">RTT</th></tr>` + d.monitors.map((m) => `<tr><td>${dot(kk[m.status] || 'off')}</td><td><b>${esc(m.name)}</b><br><span class="small">${esc(m.type || '')}</span></td><td class="mono">${esc(m.url || [m.hostname, m.port].filter(Boolean).join(':'))}</td><td class="num">${m.status === 1 && m.rtt != null ? `${num(m.rtt)} ms` : esc(m.state || '')}</td></tr>`).join('') : '<tr><td class="empty">No monitor points at this host.</td></tr>';

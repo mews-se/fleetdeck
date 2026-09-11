@@ -6,7 +6,7 @@ from app.views import State, containers, hosts, link, network
 from app.views.actions import catalog
 
 DAY = 86400
-SERIES = ("cpu", "mem", "temp")
+SERIES = ("cpu", "mem", "temp", "net_in", "net_out", "disk_read", "disk_write")
 
 
 def _series(state: State, name: str | None) -> dict[str, list]:
