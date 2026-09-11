@@ -115,7 +115,7 @@ SEVERITY_RANK = {"crit": 0, "warn": 1, "info": 2}
 
 DAY = 86400
 RETENTION = {
-    "samples": 90 * DAY,
+    "samples": 30 * DAY,
     "speedtests": 365 * DAY,
     "source_runs": 7 * DAY,
     "attention": 30 * DAY,
