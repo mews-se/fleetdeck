@@ -360,7 +360,7 @@ def test_attention_rules(cfg):
                                  for i in range(1, 11)])
     db.upsert_thread("o/r", 1, "pr", "t", "open", "a", 0, "u", None, ts=NOW - 100)
     db.upsert_thread("o/r", 1, "pr", "t", "open", "b", 1, "u", None, ts=NOW - 50)
-    for ts in (NOW - 2000, NOW - 1000, NOW - 10):
+    for ts in (NOW - 4000, NOW - 2000, NOW - 10):
         db.record_run("kuma", False, 1, error="timeout", ts=ts)
     db.record_run("beszel", False, 1, error="fresh", ts=NOW - 10)
 
@@ -378,6 +378,21 @@ def test_attention_rules(cfg):
     # nas is down but inside the window only counts; outside it is expected
     from app.clock import in_window
     assert (("beszel", "nas") in keys) == in_window(cfg.nas_window, NOW)
+
+
+def test_nas_gets_a_grace_after_the_window_opens(cfg):
+    from datetime import datetime
+
+    from app.clock import window_start
+    opened = int(datetime(2027, 1, 15, 15, 0).timestamp())
+    assert window_start(cfg.nas_window, opened + 120) == opened
+    db = Database(":memory:")
+    last_night = opened - 16 * 3600
+    db.put_snapshot("beszel", "system:nas", {"name": "nas", "status": "down",
+                                             "down_since": last_night}, ts=opened + 120)
+    assert ("beszel", "nas") not in attention.compute(db, cfg, opened + 120)
+    assert ("beszel", "nas") in attention.compute(db, cfg, opened + 600)
+    assert ("beszel", "nas") not in attention.compute(db, cfg, opened - 600)
 
 
 def test_pfsense_status():

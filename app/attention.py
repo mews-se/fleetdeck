@@ -5,14 +5,15 @@ The store turns that into rows with first_seen and cleared_ts, so an item is
 one entry for as long as its condition holds.
 """
 
-from app.clock import in_window
+from app.clock import in_window, window_start
 from app.config import Config
 from app.db import Database
 
 DOWN_GRACE = 300
 DISK_WARN = 85
 DISK_CRIT = 95
-ERROR_GRACE = 900
+# the nightly jobs on dellpi take a source down for half an hour
+ERROR_GRACE = 2700
 THREAD_WINDOW = 86400
 SPEEDTEST_MIN_RESULTS = 5
 SPEEDTEST_FAIL_RATE = 0.4
@@ -40,9 +41,14 @@ def _beszel(db: Database, config: Config, ts: int, items: dict):
                 continue
             if host and host.off_by_default:
                 continue
-            if host and host.window == "nas" and not nas_on:
-                continue
-            since = s.get("down_since") or snap_ts
+            if host and host.window == "nas":
+                if not nas_on:
+                    continue
+                # the box boots when the window opens; count from there
+                since = max(s.get("down_since") or snap_ts,
+                            window_start(config.nas_window, ts))
+            else:
+                since = s.get("down_since") or snap_ts
             if ts - since < DOWN_GRACE:
                 continue
             items[("beszel", name)] = {

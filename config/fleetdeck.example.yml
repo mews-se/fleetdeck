@@ -53,14 +53,16 @@ hosts:
     ssh: dietpi@10.0.0.8
     beszel: testpi
     rule: prod
-    role: Pi 4, wireless
+    off_by_default: true
+    role: Pi 4, wireless, on with the Mac
   pizerow:
     site: home
     ip: 10.0.0.13
     ssh: dietpi@10.0.0.13
     beszel: pizerow
     rule: prod
-    role: Zero 2 W
+    off_by_default: true
+    role: Zero 2 W, on with the Mac
   mbp:
     site: home
     ip: 10.0.0.170
