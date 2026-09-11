@@ -16,6 +16,8 @@ ERROR_GRACE = 900
 THREAD_WINDOW = 86400
 SPEEDTEST_MIN_RESULTS = 5
 SPEEDTEST_FAIL_RATE = 0.4
+STATES_WARN = 0.8
+UNBOUND_WINDOW = 3600
 
 
 def _disk_item(key: tuple, what: str, pct: float, detail: str, items: dict):
@@ -142,6 +144,80 @@ def _sources(db: Database, ts: int, items: dict):
         }
 
 
+def _pfsense_dhcp(db: Database, config: Config, box, source: str, items: dict):
+    leases = [v for _k, _t, v in db.get_snapshots(f"{source}.dhcp", "lease:")]
+    if not leases:
+        return
+    arps = {v["ip"]: v for _k, _t, v in db.get_snapshots(f"{source}.dhcp", "arp:")}
+    static = {v["ip"]: v for v in leases if v["kind"] == "static"}
+    macs = {v["mac"] for v in leases if v["mac"]}
+    for host in config.hosts.values():
+        if host.site != box.site or host.id == box.host or host.ip in static:
+            continue
+        if box.is_quiet(host.ip):
+            continue
+        lease = next((v for v in leases if v["ip"] == host.ip), None)
+        items[(source, f"mapping:{host.id}")] = {
+            "severity": "warn",
+            "title": f"{host.id} has no static DHCP mapping",
+            "detail": f"{host.ip} · " + ("dynamic lease, the address can change"
+                                         if lease else f"no lease or mapping on {box.host}"),
+        }
+    for ip, lease in static.items():
+        arp = arps.get(ip)
+        if not arp or not lease["mac"] or not arp["mac"] or lease["mac"] == arp["mac"]:
+            continue
+        if lease["quiet"]:
+            continue
+        items[(source, f"mac:{ip}")] = {
+            "severity": "warn",
+            "title": f"{ip} answers from another MAC than its static mapping",
+            "detail": f"mapping {lease['mac']} ({lease['hostname'] or lease['descr'] or '?'})"
+                      f" · ARP {arp['mac']}",
+        }
+    for pve_id in config.pve:
+        node = config.pve_host(pve_id)
+        if node is None or node.site != box.site:
+            continue
+        for _k, _t, g in db.get_snapshots(f"pve.{pve_id}", "guest:"):
+            if g.get("status") != "running" or g.get("template"):
+                continue
+            cfg = db.get_snapshot(f"pve.{pve_id}.config", f"guest:{g['vmid']}") or {}
+            for nic in cfg.get("nics") or []:
+                mac = nic.get("mac")
+                if not mac or mac in macs or (nic.get("ip") and nic["ip"] != "dhcp"):
+                    continue
+                items[(source, f"guest:{pve_id}:{g['vmid']}:{nic['name']}")] = {
+                    "severity": "info",
+                    "title": f"{g.get('name') or g['vmid']} has no DHCP mapping or lease"
+                             f" for {nic['name']}",
+                    "detail": f"{mac} on {nic.get('bridge') or '?'} · guest {g['vmid']}"
+                              f" on {node.id}",
+                }
+
+
+def _pfsense(db: Database, config: Config, ts: int, items: dict):
+    for box in config.pfsense.values():
+        source = f"pfsense.{box.id}"
+        _pfsense_dhcp(db, config, box, source, items)
+        snap = db.get_snapshot(source, "box") or {}
+        states, limit = snap.get("states"), snap.get("state_limit")
+        if isinstance(states, int | float) and limit and states / limit >= STATES_WARN:
+            items[(source, "states")] = {
+                "severity": "warn",
+                "title": f"{box.host} state table is {100 * states / limit:.0f} % full",
+                "detail": f"{states} of {limit} states",
+            }
+        restarts = len(db.series(f"{source}.unbound_restart", ts - UNBOUND_WINDOW))
+        if restarts:
+            items[(source, "unbound")] = {
+                "severity": "warn" if restarts >= 3 else "info",
+                "title": f"unbound on {box.host} restarted {restarts}"
+                         f" time{'s' if restarts > 1 else ''} in the last hour",
+                "detail": "the resolver cache starts empty after every restart",
+            }
+
+
 def compute(db: Database, config: Config, ts: int) -> dict[tuple[str, str], dict]:
     items: dict[tuple[str, str], dict] = {}
     _beszel(db, config, ts, items)
@@ -150,5 +226,6 @@ def compute(db: Database, config: Config, ts: int) -> dict[tuple[str, str], dict
     _dockhand(db, items)
     _speedtest(db, config, ts, items)
     _threads(db, ts, items)
+    _pfsense(db, config, ts, items)
     _sources(db, ts, items)
     return items

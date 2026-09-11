@@ -495,3 +495,46 @@ def test_next_delay():
     s.backoff = False
     assert next_delay(s, 5) == 300
 
+
+def test_pfsense_attention(cfg):
+    db = Database(":memory:")
+    assert attention.compute(db, cfg, NOW) == {}
+    data = json.loads(fixture("pfsense_dhcp.json"))
+    db.put_snapshots("pfsense.home.dhcp", pfsense.parse_dhcp(data, cfg.pfsense["home"]), ts=NOW)
+    db.put_snapshot("pfsense.home", "box", {"states": 350000, "state_limit": 400000})
+    db.put_snapshot("pve.home", "guest:108", {"vmid": 108, "name": "adguard", "status": "running"})
+    db.put_snapshot("pve.home.config", "guest:108",
+                    {"vmid": 108, "nics": [{"name": "eth0", "mac": "bc:24:11:cc:60:ea",
+                                            "bridge": "vmbr0", "ip": "dhcp"}]})
+    db.put_snapshot("pve.home", "guest:104",
+                    {"vmid": 104, "name": "teslamate", "status": "running"})
+    db.put_snapshot("pve.home.config", "guest:104",
+                    {"vmid": 104, "nics": [{"name": "net0", "mac": "d8:9e:f3:11:22:33"}]})
+    db.put_snapshot("pve.home", "guest:904",
+                    {"vmid": 904, "name": "testdebug", "status": "stopped"})
+    db.put_snapshot("pve.home.config", "guest:904",
+                    {"vmid": 904, "nics": [{"name": "net0", "mac": "00:00:00:00:00:01"}]})
+    db.put_snapshot("pve.home", "guest:110", {"vmid": 110, "name": "static", "status": "running"})
+    db.put_snapshot("pve.home.config", "guest:110",
+                    {"vmid": 110, "nics": [{"name": "eth0", "mac": "00:00:00:00:00:02",
+                                            "ip": "10.0.0.20/24"}]})
+    db.add_samples([("pfsense.home.unbound_restart", NOW - 600, 1.0),
+                    ("pfsense.home.unbound_restart", NOW - 7200, 1.0)])
+    items = attention.compute(db, cfg, NOW)
+    keys = set(items)
+    assert ("pfsense.home", "mapping:proxmox") in keys
+    assert items[("pfsense.home", "mapping:proxmox")]["detail"].endswith("on pfsense-home")
+    assert ("pfsense.home", "mapping:dellpi") not in keys
+    assert ("pfsense.home", "mapping:testdebug") not in keys
+    assert ("pfsense.home", "mapping:pfsense-home") not in keys
+    assert not any(k[0] == "pfsense.brk" for k in keys)
+    assert items[("pfsense.home", "mac:10.0.0.181")]["severity"] == "warn"
+    assert ("pfsense.home", "mac:10.0.0.6") not in keys
+    assert items[("pfsense.home", "guest:home:108:eth0")]["severity"] == "info"
+    assert not any(k[1].startswith(("guest:home:104", "guest:home:904", "guest:home:110"))
+                   for k in keys)
+    assert items[("pfsense.home", "states")]["title"].endswith("88 % full")
+    unbound = items[("pfsense.home", "unbound")]
+    assert unbound["severity"] == "info" and "restarted 1 time in" in unbound["title"]
+    db.add_samples([("pfsense.home.unbound_restart", NOW - 300 * n, 1.0) for n in (1, 2)])
+    assert attention.compute(db, cfg, NOW)[("pfsense.home", "unbound")]["severity"] == "warn"
