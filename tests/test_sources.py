@@ -57,14 +57,26 @@ async def test_beszel(cfg, secrets):
             return httpx.Response(401, json={})
         if request.url.path.endswith("/system_details/records"):
             return httpx.Response(200, content=fixture("beszel_system_details.json"))
+        if request.url.path.endswith("/systemd_services/records"):
+            assert request.url.params["filter"] == "state=2"
+            return httpx.Response(200, json={"items": [
+                {"system": testpi5_id, "name": "nginx.service", "state": 2},
+            ]})
         return httpx.Response(200, content=fixture("beszel_systems.json"))
 
+    testpi5_id = next(i["id"] for i in json.loads(fixture("beszel_systems.json"))["items"]
+                      if i["name"] == "testpi5")
     ctx = make_ctx(cfg, secrets, handler)
     src = beszel.build(ctx)[0][0]
     await src.collect()
     snaps = {k: v for k, _, v in ctx.db.get_snapshots("beszel", "system:")}
     dellpi = snaps["system:dellpi"]
     assert dellpi["cpu"] == 0.42 and dellpi["temp"] == 45 and dellpi["extra_fs"] == {"sda1": 8.91}
+    assert dellpi["bandwidth"] == 0.009724 and dellpi["services"] is None
+    assert dellpi["failed_services"] == []
+    assert snaps["system:testpi5"]["services"] == [39, 1]
+    assert snaps["system:testpi5"]["failed_services"] == ["nginx.service"]
+    assert ctx.db.latest_sample("beszel.bandwidth.dellpi") is not None
     assert dellpi["hostname"] == "dellpi" and dellpi["os"] == "Debian GNU/Linux 13 (trixie)"
     assert dellpi["kernel"] == "6.12.107+deb13-amd64" and dellpi["arch"] == "x86_64"
     assert dellpi["model"].startswith("Intel(R) Core(TM) i5-10500T")
@@ -378,6 +390,7 @@ def test_attention_rules(cfg):
     # nas is down but inside the window only counts; outside it is expected
     from app.clock import in_window
     assert (("beszel", "nas") in keys) == in_window(cfg.nas_window, NOW)
+    assert items[("beszel", "services:testpi5")]["detail"] == "systemd, names not read yet"
 
 
 def test_nas_gets_a_grace_after_the_window_opens(cfg):
@@ -393,6 +406,57 @@ def test_nas_gets_a_grace_after_the_window_opens(cfg):
     assert ("beszel", "nas") not in attention.compute(db, cfg, opened + 120)
     assert ("beszel", "nas") in attention.compute(db, cfg, opened + 600)
     assert ("beszel", "nas") not in attention.compute(db, cfg, opened - 600)
+
+
+def test_metric_rules(cfg):
+    db = Database(":memory:")
+
+    def system(name, **extra):
+        base = {"name": name, "status": "up", "down_since": None, "cpu": 1, "mem": 1,
+                "disk": 1, "temp": 40, "load": [0.1, 0.1, 0.1], "threads": 4,
+                "extra_fs": None, "bandwidth": 0.1, "services": [10, 0],
+                "failed_services": []}
+        return {**base, **extra}
+
+    db.put_snapshots("beszel", {
+        "system:hot": system("hot", temp=61),
+        "system:cooked": system("cooked", temp=70.4),
+        "system:busy": system("busy", load=[9, 8, 4.5]),
+        "system:broken": system("broken", services=[40, 2],
+                                failed_services=["nginx.service", "smartd.service"]),
+        "system:quiet": system("quiet", load=[3.9, 3.9, 3.9]),
+        "system:down": system("down", status="down", temp=99, down_since=NOW - 9000),
+    }, ts=NOW)
+    # five one-minute samples fill a five-minute window, four do not
+    db.add_samples([("beszel.cpu.busy", NOW - 60 * n, 95.0) for n in range(5)])
+    db.add_samples([("beszel.mem.busy", NOW - 60 * n, 92.0) for n in range(4)])
+    db.add_samples([("beszel.mem.hot", NOW - 60 * n, 91.0) for n in range(5)])
+    db.add_samples([("beszel.bandwidth.busy", NOW - 60 * n, 120.0) for n in range(5)])
+    db.add_samples([("beszel.cpu.quiet", NOW - 60 * n, 50.0) for n in range(5)])
+    db.put_snapshot("dockhand", "1:grav", {"env": 1, "host": "dellpi", "name": "grav",
+                                           "image": "getgrav/grav", "state": "running",
+                                           "status": "Up 2 hours (unhealthy)"})
+    db.put_snapshot("dockhand", "1:npm", {"env": 1, "host": "dellpi", "name": "npm",
+                                          "image": "npm", "state": "running",
+                                          "status": "Up 2 hours (healthy)"})
+    items = attention.compute(db, cfg, NOW)
+    keys = set(items)
+    cpu = items[("beszel", "cpu:busy")]
+    assert cpu["severity"] == "warn" and cpu["title"] == "busy CPU averaged 95 % for 5 min"
+    assert ("beszel", "mem:busy") not in keys
+    assert items[("beszel", "mem:hot")]["title"] == "hot memory averaged 91 % for 5 min"
+    assert items[("beszel", "temp:hot")]["severity"] == "warn"
+    assert items[("beszel", "temp:cooked")]["severity"] == "crit"
+    assert not any(k[1] in ("temp:quiet", "temp:down", "cpu:quiet", "load:quiet") for k in keys)
+    assert items[("beszel", "load:busy")]["title"] == "busy load is 4.5 on 4 threads"
+    bw = items[("beszel", "bandwidth:busy")]
+    assert bw["severity"] == "info" and bw["title"] == "busy moved 120 MB/s for 5 min"
+    broken = items[("beszel", "services:broken")]
+    assert broken["title"] == "2 failed services on broken"
+    assert broken["detail"] == "nginx.service, smartd.service"
+    assert items[("dockhand", "unhealthy:1:grav")]["title"] == "grav is unhealthy on dellpi"
+    assert ("dockhand", "unhealthy:1:npm") not in keys
+    assert items[("beszel", "down")]["severity"] == "warn"
 
 
 def test_pfsense_status():

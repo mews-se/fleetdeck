@@ -21,7 +21,16 @@ and get linked; fleetdeck is the page you open first.
   what moved upstream in the last day, quick actions and the state of every
   collector. An attention item can be marked read (it stays but stops
   counting) or resolved (hidden until it clears); either mark comes off by
-  itself if the item gets worse.
+  itself if the item gets worse. The rules: a host down in Beszel for five
+  minutes (a host on the NAS schedule only inside its window, one marked
+  off by default never), a disk past 85 or 95 percent on a host or a PVE
+  storage, CPU or memory averaging 90 percent over five minutes, a
+  temperature reading of 60 or 70 degrees, a 15 minute load at or above the
+  thread count, 100 MB/s of traffic for five minutes, a failed systemd
+  service, an unhealthy container, an Uptime Kuma monitor down, image
+  updates waiting in Dockhand, a speed test instance failing more than 40
+  percent of the day, a source failing for 45 minutes, an upstream thread
+  that moved, and the pfSense rules below.
 - **Hosts**: every Beszel agent with CPU, memory, disk, temperature and uptime,
   joined with the host list from the config so a test VM that is off by rule
   shows grey, not red, plus the MAC and the kind of DHCP entry pfSense has for

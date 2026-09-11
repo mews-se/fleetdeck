@@ -12,6 +12,15 @@ from app.db import Database
 DOWN_GRACE = 300
 DISK_WARN = 85
 DISK_CRIT = 95
+CPU_WARN = 90
+CPU_WINDOW = 300
+MEM_WARN = 90
+MEM_WINDOW = 300
+TEMP_WARN = 60
+TEMP_CRIT = 70
+BANDWIDTH_INFO = 100
+BANDWIDTH_WINDOW = 300
+SAMPLE_STEP = 60
 # the nightly jobs on dellpi take a source down for half an hour
 ERROR_GRACE = 2700
 THREAD_WINDOW = 86400
@@ -29,6 +38,14 @@ def _disk_item(key: tuple, what: str, pct: float, detail: str, items: dict):
         "title": f"{what} is {pct:.0f} % full",
         "detail": detail,
     }
+
+
+def _average(db: Database, series: str, ts: int, window: int) -> float | None:
+    """Mean of the window, or None when too many samples are missing."""
+    points = db.series(series, ts - window)
+    if len(points) < window / SAMPLE_STEP / 1.2:
+        return None
+    return sum(v for _t, v in points) / len(points)
 
 
 def _beszel(db: Database, config: Config, ts: int, items: dict):
@@ -66,6 +83,56 @@ def _beszel(db: Database, config: Config, ts: int, items: dict):
             if isinstance(pct, int | float):
                 _disk_item(("beszel", f"disk:{name}:{mount}"), f"{name} {mount}", pct,
                            "Beszel agent", items)
+        _load_items(db, name, s, ts, items)
+
+
+def _load_items(db: Database, name: str, s: dict, ts: int, items: dict):
+    cpu = _average(db, f"beszel.cpu.{name}", ts, CPU_WINDOW)
+    if cpu is not None and cpu >= CPU_WARN:
+        items[("beszel", f"cpu:{name}")] = {
+            "severity": "warn",
+            "title": f"{name} CPU averaged {cpu:.0f} % for {CPU_WINDOW // 60} min",
+            "detail": "Beszel agent",
+        }
+    mem = _average(db, f"beszel.mem.{name}", ts, MEM_WINDOW)
+    if mem is not None and mem >= MEM_WARN:
+        items[("beszel", f"mem:{name}")] = {
+            "severity": "warn",
+            "title": f"{name} memory averaged {mem:.0f} % for {MEM_WINDOW // 60} min",
+            "detail": "Beszel agent",
+        }
+    temp = s.get("temp")
+    if isinstance(temp, int | float) and temp >= TEMP_WARN:
+        items[("beszel", f"temp:{name}")] = {
+            "severity": "crit" if temp >= TEMP_CRIT else "warn",
+            "title": f"{name} runs at {temp:.0f} °C",
+            "detail": "Beszel agent, latest reading",
+        }
+    load = s.get("load") or []
+    threads = s.get("threads") or s.get("cores")
+    if len(load) == 3 and isinstance(load[2], int | float) and threads and load[2] >= threads:
+        items[("beszel", f"load:{name}")] = {
+            "severity": "warn",
+            "title": f"{name} load is {load[2]:.1f} on {threads} threads",
+            "detail": "15 minute average",
+        }
+    bw = _average(db, f"beszel.bandwidth.{name}", ts, BANDWIDTH_WINDOW)
+    if bw is not None and bw >= BANDWIDTH_INFO:
+        items[("beszel", f"bandwidth:{name}")] = {
+            "severity": "info",
+            "title": f"{name} moved {bw:.0f} MB/s for {BANDWIDTH_WINDOW // 60} min",
+            "detail": "sent and received, Beszel agent",
+        }
+    failed = s.get("failed_services") or []
+    count = len(failed) or ((s.get("services") or [0, 0])[1] or 0)
+    if count:
+        names = ", ".join(failed[:10]) + (f" and {len(failed) - 10} more" if len(failed) > 10
+                                         else "")
+        items[("beszel", f"services:{name}")] = {
+            "severity": "warn",
+            "title": f"{count} failed service{'s' if count > 1 else ''} on {name}",
+            "detail": names or "systemd, names not read yet",
+        }
 
 
 def _kuma(db: Database, items: dict):
@@ -96,6 +163,13 @@ def _pve(db: Database, config: Config, items: dict):
 
 
 def _dockhand(db: Database, items: dict):
+    for key, _ts, c in db.get_snapshots("dockhand"):
+        if "state" in c and "(unhealthy)" in str(c.get("status") or ""):
+            items[("dockhand", f"unhealthy:{key}")] = {
+                "severity": "warn",
+                "title": f"{c.get('name')} is unhealthy on {c.get('host')}",
+                "detail": f"{c.get('image') or ''} · {c.get('status')}".strip(" ·"),
+            }
     for _key, _ts, u in db.get_snapshots("dockhand.updates", "updates:"):
         names = [i.get("name") for i in u.get("items") or [] if i.get("name")]
         if not names:

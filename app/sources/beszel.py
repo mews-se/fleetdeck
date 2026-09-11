@@ -2,7 +2,9 @@
 
 from app.sources import Context, Source
 
-SAMPLED = ("cpu", "mem", "disk", "temp")
+SAMPLED = ("cpu", "mem", "disk", "temp", "bandwidth")
+# systemd_services.state as the hub stores it
+SERVICE_FAILED = 2
 
 
 class BeszelSystems(Source):
@@ -42,18 +44,28 @@ class BeszelSystems(Source):
         d = await self._records("system_details")
         d.raise_for_status()
         details = {x.get("system"): x for x in d.json().get("items", [])}
+        items = r.json().get("items", [])
+        failed: dict[str, list[str]] = {}
+        # the names are only worth a request when some host reports a failure
+        if any(((it.get("info") or {}).get("sv") or [0, 0])[1] for it in items):
+            f = await self._records("systemd_services", filter=f"state={SERVICE_FAILED}")
+            f.raise_for_status()
+            for row in f.json().get("items", []):
+                failed.setdefault(row.get("system"), []).append(row.get("name"))
         ts = self.ctx.now()
         previous = {k: v for k, _, v in self.ctx.db.get_snapshots("beszel", "system:")}
-        snaps, samples = parse_systems(r.json().get("items", []), details, previous, ts)
+        snaps, samples = parse_systems(items, details, previous, ts, failed)
         self.ctx.db.put_snapshots("beszel", snaps, prefix="system:", ts=ts)
         self.ctx.db.add_samples(samples)
 
 
 def parse_systems(items: list[dict], details: dict[str, dict], previous: dict[str, dict],
-                  ts: int):
+                  ts: int, failed: dict[str, list[str]] | None = None):
     snaps, samples = {}, []
     for it in items:
         info = it.get("info") or {}
+        bb = info.get("bb")
+        services = info.get("sv")
         det = details.get(it.get("id")) or {}
         name = it.get("name") or it.get("host")
         key = f"system:{name}"
@@ -76,6 +88,9 @@ def parse_systems(items: list[dict], details: dict[str, dict], previous: dict[st
             "agent": info.get("v"),
             "load": info.get("la"),
             "extra_fs": info.get("efs"),
+            "bandwidth": bb / 1e6 if isinstance(bb, int | float) else None,
+            "services": services if isinstance(services, list) and len(services) == 2 else None,
+            "failed_services": sorted((failed or {}).get(it.get("id")) or []),
             "hostname": det.get("hostname"),
             "os": (det.get("os_name") or "").strip() or None,
             "kernel": det.get("kernel") or None,
