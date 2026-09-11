@@ -85,6 +85,26 @@ def _pve_node(state: State, host) -> dict | None:
     }
 
 
+def _pfsense(state: State, host) -> dict | None:
+    box = next((b for b in state.config.pfsense.values() if b.host == host.id), None)
+    if box is None:
+        return None
+    source = f"pfsense.{box.id}"
+    rows = state.db.get_snapshots(source, "box")
+    series = {}
+    for name in ("states", "mem_pct", "temp"):
+        points = state.db.series(f"{source}.{name}", state.now - DAY)
+        series[name] = [[p[0] for p in points], [p[1] for p in points]]
+    return {
+        "id": box.id,
+        "box": rows[0][2] if rows else None,
+        "ts": rows[0][1] if rows else None,
+        "peers": [p for _k, _t, p in state.db.get_snapshots(source, "peer:")],
+        "series": series,
+        "url": link(state.config, f"pfsense-{box.id}"),
+    }
+
+
 def _network(state: State, host, known: dict) -> dict | None:
     box = state.config.pfsense_for_site(host.site)
     if box is None:
@@ -137,6 +157,7 @@ def build(state: State, host_id: str) -> dict:
         "guest": _guest(state, host, known),
         "pve_node": _pve_node(state, host),
         "network": _network(state, host, known),
+        "pfsense": _pfsense(state, host),
         "containers": group,
         "monitors": _monitors(state, host),
         "dns": {"queries": dns},

@@ -288,3 +288,57 @@ def test_pfsense_in_views(client):
     g = client.get("/api/view/host/testdebug").json()["guest"]
     assert g["config"]["nics"][0]["lease"] == {"ip": "10.0.0.77", "kind": "arp"}
     assert client.get("/network").status_code == 200
+
+
+def test_pfsense_box_as_host(client):
+    db = client.app.state.console.db
+    now = int(time.time())
+    rows = {h["id"]: h for h in client.get("/api/view/hosts").json()["hosts"]}
+    assert rows["pfsense-home"]["status"] == "noagent"
+    db.put_snapshot("pfsense.home", "box", {"version": "26.07-RELEASE", "uptime": 1000,
+                                            "temp": 44.0, "load": [0.2, 0.1, 0.1],
+                                            "mem_pct": 20.7, "states": 700, "state_limit": 395000,
+                                            "unbound_uptime": 50, "wan_if": "ix3"}, ts=now - 60)
+    db.put_snapshot("pfsense.brk", "box", {"version": "26.07-RELEASE"}, ts=now - 3600)
+    db.add_samples([("pfsense.home.states", now - 120, 650.0),
+                    ("pfsense.home.states", now - 60, 700.0)])
+    d = client.get("/api/view/hosts").json()
+    rows = {h["id"]: h for h in d["hosts"]}
+    home, brk = rows["pfsense-home"], rows["pfsense-brk"]
+    assert home["status"] == "up" and home["agent"] == "pfSense 26.07-RELEASE"
+    assert home["temp"] == 44.0 and home["mem"] == 20.7 and home["uptime"] == 1000
+    assert home["cpu"] is None and home["disk"] is None
+    assert brk["status"] == "down" and brk["down_since"] == now - 3600
+    assert d["counts"]["up"] >= 1 and d["counts"]["down"] >= 1
+    p = client.get("/api/view/host/pfsense-home").json()
+    assert p["host"]["status"] == "up" and p["system"] is None
+    assert p["pfsense"]["box"]["states"] == 700 and p["pfsense"]["id"] == "home"
+    assert p["pfsense"]["series"]["states"] == [[now - 120, now - 60], [650.0, 700.0]]
+    assert client.get("/api/view/host/dellpi").json()["pfsense"] is None
+    assert client.get("/hosts/pfsense-home").status_code == 200
+
+
+def test_other_devices(client):
+    db = client.app.state.console.db
+    lease = {"descr": None, "kind": "static", "act": "static", "online": True, "starts": None,
+             "ends": None, "if": "lan", "quiet": False}
+    db.put_snapshot("pfsense.home.dhcp", "lease:10.0.0.6",
+                    {**lease, "ip": "10.0.0.6", "mac": "d8:9e:f3:11:22:33", "hostname": "dellpi"})
+    db.put_snapshot("pfsense.home.dhcp", "lease:10.0.0.180",
+                    {**lease, "ip": "10.0.0.180", "mac": "f0:2f:74:42:36:88",
+                     "hostname": "RT-AX56U", "descr": "mesh node", "online": False})
+    db.put_snapshot("pfsense.home.dhcp", "arp:10.0.0.77",
+                    {"ip": "10.0.0.77", "mac": "aa:bb:cc:dd:ee:ff", "if": "igc0",
+                     "permanent": False, "expires": 100, "quiet": False})
+    db.put_snapshot("pfsense.brk.dhcp", "lease:10.0.1.45",
+                    {**lease, "ip": "10.0.1.45", "mac": "28:70:4e:00:00:45", "hostname": "U6",
+                     "quiet": True})
+    db.put_snapshot("pfsense.brk.dhcp", "lease:10.0.1.230",
+                    {**lease, "ip": "10.0.1.230", "mac": "00:04:13:00:02:30", "hostname": "snom",
+                     "kind": "dynamic", "act": "active", "ends": 1_900_000_000})
+    groups = {g["site"]: g for g in client.get("/api/view/hosts").json()["devices"]}
+    home, brk = groups["Stockzell"], groups["BRK"]
+    assert [x["ip"] for x in home["devices"]] == ["10.0.0.180"] and home["online"] == 0
+    assert home["box"] == "pfsense-home" and home["quiet"] == 0
+    assert [x["ip"] for x in brk["devices"]] == ["10.0.1.230"] and brk["quiet"] == 1
+    assert brk["devices"][0]["kind"] == "dynamic" and brk["devices"][0]["ends"] == 1_900_000_000

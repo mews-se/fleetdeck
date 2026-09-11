@@ -25,7 +25,10 @@ and get linked; fleetdeck is the page you open first.
 - **Hosts**: every Beszel agent with CPU, memory, disk, temperature and uptime,
   joined with the host list from the config so a test VM that is off by rule
   shows grey, not red, plus the MAC and the kind of DHCP entry pfSense has for
-  its address. Each host has its own page with 24 hours of curves, the guest
+  its address. A pfSense box counts as up on its own answers, with its
+  version, uptime, temperature, load and memory in the row. Below the table,
+  one list per site of the DHCP mappings and leases pfSense knows that are
+  not hosts in the config, quiet ranges left out. Each host has its own page with 24 hours of curves, the guest
   it runs as and its config read from PVE (with the lease behind every NIC),
   its containers, the Uptime Kuma monitors that point at it, its share of the
   day's DNS queries, and the catalog entries and runs that concern it.

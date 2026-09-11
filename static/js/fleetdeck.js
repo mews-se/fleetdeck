@@ -273,6 +273,10 @@ const FD = (() => {
         <td>${h.status === 'up' ? bar(h.cpu) : dash}</td><td>${h.status === 'up' ? bar(h.mem) : dash}</td><td>${h.status === 'up' ? bar(h.disk) : dash}</td>
         <td class="num">${h.status === 'up' && h.temp ? `${num(h.temp)} °C` : '—'}</td><td class="num">${h.status === 'up' ? span(h.uptime) : '—'}</td>
         <td><span class="links">${h.beszel ? `<a href="${esc(h.beszel)}" target="_blank" rel="noopener">beszel</a>` : ''}${d.links.termix ? `<a href="${esc(d.links.termix)}" target="_blank" rel="noopener">termix</a>` : ''}</span></td></tr>`).join('');
+    $('devices').innerHTML = (d.devices || []).map((g) => `<div class="panel" style="margin-top:16px">
+      <h3>Other devices · ${esc(g.site)} <span class="meta">${g.devices.length} known to <a href="/hosts/${esc(g.box)}">${esc(g.box)}</a> and not in the config · ${g.online} online${g.quiet ? ` · ${g.quiet} quiet left out` : ''}</span></h3>
+      ${g.devices.length ? `<div class="tw"><table><tr><th></th><th>Address</th><th>MAC</th><th>Name</th><th>Description</th><th>DHCP</th><th>Lease ends</th></tr>${g.devices.map((x) => `<tr><td>${dot(x.online ? 'good' : 'off')}</td><td class="mono">${esc(x.ip)}</td><td class="mono small">${esc(x.mac || '')}${x.mismatch ? `<br>${pill('crit', 'ARP ' + x.arp_mac)}` : ''}</td><td>${esc(x.hostname || '')}</td><td class="wrap">${esc(x.descr || '')}</td><td>${pill(dhcpKind[x.kind], x.kind)}</td><td class="dim">${x.ends ? when(x.ends) : '—'}</td></tr>`).join('')}</table></div>` : '<div class="empty">Nothing read from pfSense yet.</div>'}
+    </div>`).join('');
     $('hosts-t').querySelectorAll('th[data-sort]').forEach((el) => {
       el.onclick = () => {
         const key = el.dataset.sort;
@@ -403,7 +407,10 @@ const FD = (() => {
     $('sys-meta').textContent = s ? `Beszel ${esc(h.beszel)} · ${age(s.snap_ts)} ago` : 'no agent';
     let kv = `<dt>Status</dt><dd>${esc(status)}</dd>`;
     if (s) kv += `<dt>Hostname</dt><dd>${esc(s.hostname || '—')}</dd><dt>OS</dt><dd>${esc(s.os || '—')}</dd><dt>Kernel</dt><dd>${esc(s.kernel || '—')}</dd><dt>CPU</dt><dd class="wrap">${esc(s.model || '—')}${s.cores ? ` · ${s.cores} cores` : ''}${s.threads && s.threads !== s.cores ? ` / ${s.threads} threads` : ''}${s.arch ? ` · ${esc(s.arch)}` : ''}</dd><dt>Load</dt><dd>${(s.load || []).map((x) => num(x, 2)).join(' ') || '—'}</dd><dt>CPU use</dt><dd>${h.status === 'up' ? bar(s.cpu) : '—'}</dd><dt>Memory</dt><dd>${h.status === 'up' ? bar(s.mem) : '—'}${s.memory ? ` of ${gib(s.memory)}` : ''}</dd><dt>Disk</dt><dd>${h.status === 'up' ? bar(s.disk) : '—'}${Object.entries(s.extra_fs || {}).map(([m, p]) => `<br>${esc(m)} ${bar(p)}`).join('')}</dd><dt>Temp</dt><dd>${h.status === 'up' && s.temp ? `${num(s.temp)} °C` : '—'}</dd><dt>Uptime</dt><dd>${h.status === 'up' ? span(s.uptime) : '—'}</dd><dt>Agent</dt><dd>${esc(s.agent || '—')}</dd>`;
-    else kv += `<dt>Beszel</dt><dd>${h.beszel ? `no data for ${esc(h.beszel)} yet` : 'no agent configured'}</dd>`;
+    else if (d.pfsense && d.pfsense.box) {
+      const b = d.pfsense.box, t = b.tailscale, online = d.pfsense.peers.filter((x) => x.online).length;
+      kv = `<dt>Status</dt><dd>${h.status === 'up' ? 'answers over ssh' : `no answer since ${when(d.pfsense.ts)}`}</dd><dt>Version</dt><dd>pfSense ${esc(b.version || '?')}</dd><dt>Uptime</dt><dd>${span(b.uptime)}</dd><dt>Load</dt><dd>${(b.load || []).map((x) => num(x, 2)).join(' ') || '—'}</dd><dt>Memory</dt><dd>${bar(b.mem_pct)}</dd><dt>Temp</dt><dd>${b.temp != null ? `${num(b.temp)} °C` : '—'}</dd><dt>States</dt><dd>${num(b.states)}${b.state_limit ? ` of ${num(b.state_limit)}` : ''}</dd><dt>unbound</dt><dd>${b.unbound_uptime != null ? `up ${span(b.unbound_uptime)}` : 'not running'}</dd><dt>Tailscale</dt><dd>${t ? `${esc(t.name || '')} · ${esc(t.version || '')} · ${online}/${d.pfsense.peers.length} peers online` : '—'}</dd>`;
+    } else kv += `<dt>Beszel</dt><dd>${h.beszel ? `no data for ${esc(h.beszel)} yet` : 'no agent configured'}</dd>`;
     const p = d.pve_node;
     if (p) kv += `<dt>PVE</dt><dd>${esc(p.version || '?')} · ${p.running ?? '—'}/${p.guests ?? '—'} guests running · root ${num(p.root_pct)} % · <a href="${esc(p.url)}" target="_blank" rel="noopener">web UI</a> · <a href="/guests">guests</a></dd>`;
     const n = d.network;
@@ -412,9 +419,19 @@ const FD = (() => {
       kv += `<dt>DHCP</dt><dd>${x ? `${dhcpPill({ mapping: x.kind, mismatch: x.mismatch })} <span class="mono">${esc(x.mac || '')}</span>${x.mismatch ? ` · ARP says <span class="mono">${esc(x.arp_mac)}</span>` : ''} · ${x.online ? 'seen in ARP' : 'not in ARP'}${x.hostname ? ` · ${esc(x.hostname)}` : ''}${x.ends ? ` · until ${when(x.ends)}` : ''}` : `no mapping or lease on ${esc(n.box)}`} · <a href="/network">network</a></dd>`;
     }
     $('sys-kv').innerHTML = kv;
-    chart('ch-cpu', d.series.cpu[0], [d.series.cpu[1]], { min: 0, max: 100, unit: ' %' });
-    chart('ch-mem', d.series.mem[0], [d.series.mem[1]], { min: 0, max: 100, unit: ' %' });
-    chart('ch-temp', d.series.temp[0], [d.series.temp[1]], { unit: ' °C' });
+    if (d.pfsense) {
+      $('sys-meta').textContent = d.pfsense.ts ? `pfSense · ${age(d.pfsense.ts)} ago` : 'pfSense · not read yet';
+      $('ch-cpu').previousElementSibling.innerHTML = '<span><i class="data"></i>states</span>';
+      $('ch-cpu').parentElement.querySelector('h3 .meta').textContent = 'pfSense';
+      const s = d.pfsense.series;
+      chart('ch-cpu', s.states[0], [s.states[1]], { min: 0 });
+      chart('ch-mem', s.mem_pct[0], [s.mem_pct[1]], { min: 0, max: 100, unit: ' %' });
+      chart('ch-temp', s.temp[0], [s.temp[1]], { unit: ' °C' });
+    } else {
+      chart('ch-cpu', d.series.cpu[0], [d.series.cpu[1]], { min: 0, max: 100, unit: ' %' });
+      chart('ch-mem', d.series.mem[0], [d.series.mem[1]], { min: 0, max: 100, unit: ' %' });
+      chart('ch-temp', d.series.temp[0], [d.series.temp[1]], { unit: ' °C' });
+    }
     const kk = { 0: 'crit', 1: 'good', 2: 'warn', 3: 'off' };
     $('mon-meta').textContent = d.monitors.length ? `Uptime Kuma · ${d.monitors.filter((m) => m.status === 1).length}/${d.monitors.length} up` : 'Uptime Kuma';
     $('mon-t').innerHTML = d.monitors.length ? `<tr><th></th><th>Monitor</th><th>Target</th><th class="num">RTT</th></tr>` + d.monitors.map((m) => `<tr><td>${dot(kk[m.status] || 'off')}</td><td><b>${esc(m.name)}</b><br><span class="small">${esc(m.type || '')}</span></td><td class="mono">${esc(m.url || [m.hostname, m.port].filter(Boolean).join(':'))}</td><td class="num">${m.status === 1 && m.rtt != null ? `${num(m.rtt)} ms` : esc(m.state || '')}</td></tr>`).join('') : '<tr><td class="empty">No monitor points at this host.</td></tr>';
