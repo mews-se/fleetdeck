@@ -80,6 +80,9 @@ class Pfsense:
     timezone: str = "UTC"
     # address ranges that never raise attention, as (first, last) integers
     quiet: list[tuple[int, int]] = field(default_factory=list)
+    # groups of MACs that belong to one device, for NIC bonds that answer
+    # ARP from either port
+    bonds: list[frozenset[str]] = field(default_factory=list)
 
     def is_quiet(self, ip: str) -> bool:
         try:
@@ -87,6 +90,13 @@ class Pfsense:
         except ValueError:
             return False
         return any(lo <= n <= hi for lo, hi in self.quiet)
+
+    def same_device(self, mac_a: str | None, mac_b: str | None) -> bool:
+        if not mac_a or not mac_b:
+            return False
+        if mac_a == mac_b:
+            return True
+        return any(mac_a in group and mac_b in group for group in self.bonds)
 
 
 @dataclass
@@ -264,6 +274,29 @@ def _quiet(values, where: str) -> list[tuple[int, int]]:
     return out
 
 
+_MAC = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
+
+
+def _bonds(values, where: str) -> list[frozenset[str]]:
+    if values is None:
+        return []
+    if not isinstance(values, list) or not all(isinstance(g, list) for g in values):
+        raise ConfigError(f"{where}: bonds must be a list of MAC address lists")
+    out = []
+    for group in values:
+        macs = set()
+        for v in group:
+            # an all-digit MAC reads as a base-60 integer in YAML unless quoted
+            if not isinstance(v, str) or not _MAC.match(v.lower()):
+                raise ConfigError(f"{where}: bonds entry {v!r} is not a MAC address"
+                                  " (quote it in YAML)")
+            macs.add(v.lower())
+        if len(macs) < 2:
+            raise ConfigError(f"{where}: a bond needs at least two different MAC addresses")
+        out.append(frozenset(macs))
+    return out
+
+
 def _pfsense(id_: str, d: dict, where: str, hosts: dict[str, Host]) -> Pfsense:
     d = _mapping(d, where)
     host = _str(d, "host", where)
@@ -277,6 +310,7 @@ def _pfsense(id_: str, d: dict, where: str, hosts: dict[str, Host]) -> Pfsense:
         site=hosts[host].site,
         timezone=_timezone(d, where),
         quiet=_quiet(d.get("quiet"), where),
+        bonds=_bonds(d.get("bonds"), where),
     )
 
 

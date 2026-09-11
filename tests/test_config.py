@@ -26,6 +26,12 @@ def test_example_loads(cfg):
     assert cfg.pfsense["brk"].is_quiet("10.0.1.45") and not cfg.pfsense["brk"].is_quiet("10.0.1.8")
     assert not cfg.pfsense["home"].is_quiet("10.0.1.45") and not cfg.pfsense["home"].is_quiet("x")
     assert cfg.pfsense_for_site("home").id == "home" and cfg.pfsense_for_site("moon") is None
+    home = cfg.pfsense["home"]
+    assert home.same_device("00:11:32:aa:bb:01", "00:11:32:AA:BB:02".lower())
+    assert home.same_device("d8:9e:f3:11:22:33", "d8:9e:f3:11:22:33")
+    assert not home.same_device("00:11:32:aa:bb:01", "d8:9e:f3:11:22:33")
+    assert not home.same_device(None, "00:11:32:aa:bb:01")
+    assert not cfg.pfsense["brk"].same_device("00:11:32:aa:bb:01", "00:11:32:aa:bb:02")
 
 
 @pytest.mark.parametrize(
@@ -51,6 +57,14 @@ def test_example_loads(cfg):
          "ends before"),
         (lambda d: d["sources"]["pfsense"]["brk"].update(quiet=["lan"]), "not an address"),
         (lambda d: d["sources"]["pfsense"]["brk"].update(quiet="10.0.1.40"), "must be a list"),
+        (lambda d: d["sources"]["pfsense"]["home"].update(bonds=["00:11:32:aa:bb:01"]),
+         "list of MAC address lists"),
+        (lambda d: d["sources"]["pfsense"]["home"].update(bonds=[["00:11:32:aa:bb:01"]]),
+         "at least two"),
+        (lambda d: d["sources"]["pfsense"]["home"].update(bonds=[["nas", "00:11:32:aa:bb:02"]]),
+         "not a MAC address"),
+        (lambda d: d["sources"]["pfsense"]["home"].update(bonds=[[101112, "00:11:32:aa:bb:02"]]),
+         "quote it"),
         (lambda d: d["sources"]["pfsense"]["brk"].update(timezone="Mars/Olympus"),
          "unknown timezone"),
         (lambda d: d["github"]["watch_threads"][0].update(repo="domain-monitor"), "owner/name"),

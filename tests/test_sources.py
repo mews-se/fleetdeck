@@ -530,6 +530,8 @@ def test_pfsense_attention(cfg):
     assert not any(k[0] == "pfsense.brk" for k in keys)
     assert items[("pfsense.home", "mac:10.0.0.181")]["severity"] == "warn"
     assert ("pfsense.home", "mac:10.0.0.6") not in keys
+    assert ("pfsense.home", "mac:10.0.0.100") not in keys  # the NAS bond's other port
+    assert ("pfsense.home", "mapping:nas") not in keys
     assert items[("pfsense.home", "guest:home:108:eth0")]["severity"] == "info"
     assert not any(k[1].startswith(("guest:home:104", "guest:home:904", "guest:home:110"))
                    for k in keys)

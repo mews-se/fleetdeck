@@ -101,7 +101,7 @@ def devices(state: State, box) -> list[dict]:
             "mac": (lease or {}).get("mac") or (arp or {}).get("mac"),
             "arp_mac": arp["mac"] if arp else None,
             "mismatch": bool(lease and arp and lease["mac"] and arp["mac"]
-                             and lease["mac"] != arp["mac"]),
+                             and not box.same_device(lease["mac"], arp["mac"])),
             "hostname": lease["hostname"] if lease else None,
             "descr": lease["descr"] if lease else None,
             "online": bool(arp) or bool(lease and lease["online"]),

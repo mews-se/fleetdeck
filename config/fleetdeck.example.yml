@@ -172,9 +172,11 @@ sources:
     brk:  {url: http://10.0.1.11:8081, secret: speedtest-brk.token, site: brk,
            timezone: Europe/Stockholm}
   # read over ssh through contrib/pfsense/fleetdeck-read.sh; quiet ranges
-  # stay in the device table but never raise attention
+  # stay in the device table but never raise attention; bonds are MACs that
+  # belong to one device (the NAS answers ARP from either port of its bond)
   pfsense:
-    home: {host: pfsense-home, timezone: Europe/Stockholm}
+    home: {host: pfsense-home, timezone: Europe/Stockholm,
+           bonds: [["00:11:32:aa:bb:01", "00:11:32:aa:bb:02"]]}
     brk:  {host: pfsense-brk, timezone: Europe/Stockholm,
            quiet: [10.0.1.40-10.0.1.50, 10.0.1.60-10.0.1.75]}
 

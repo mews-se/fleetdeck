@@ -165,9 +165,9 @@ def _pfsense_dhcp(db: Database, config: Config, box, source: str, items: dict):
         }
     for ip, lease in static.items():
         arp = arps.get(ip)
-        if not arp or not lease["mac"] or not arp["mac"] or lease["mac"] == arp["mac"]:
+        if not arp or not lease["mac"] or not arp["mac"]:
             continue
-        if lease["quiet"]:
+        if lease["quiet"] or box.same_device(lease["mac"], arp["mac"]):
             continue
         items[(source, f"mac:{ip}")] = {
             "severity": "warn",

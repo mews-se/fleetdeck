@@ -165,7 +165,8 @@ that carries their ssh address:
 ```yaml
 sources:
   pfsense:
-    home: {host: pfsense-home, timezone: Europe/Stockholm}
+    home: {host: pfsense-home, timezone: Europe/Stockholm,
+           bonds: [["00:11:32:aa:bb:01", "00:11:32:aa:bb:02"]]}
     brk:  {host: pfsense-brk, timezone: Europe/Stockholm,
            quiet: [10.0.1.40-10.0.1.50, 10.0.1.60-10.0.1.75]}
 ```
@@ -173,6 +174,10 @@ sources:
 `timezone` is the box's own, used to read lease times. `quiet` lists
 addresses, ranges or networks that stay in the device table but never raise
 attention, for the access points and cameras nobody manages from here.
+`bonds` lists groups of MAC addresses that belong to one device: a NIC bond
+answers ARP from whichever port is active, so a static mapping on one of
+them is not a mismatch when the other answers. Quote the addresses, YAML
+reads an all-digit one as a number.
 Everything is read every five minutes (the lease read is one PHP start,
 about a third of a second on a C3000 Atom); a failing box is retried with a
 growing pause, up to an hour, so a wrong key line cannot trip sshguard on
