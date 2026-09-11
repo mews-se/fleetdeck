@@ -244,3 +244,47 @@ def test_release_state():
     assert release_state("v2.15.1", "latest") == "unknown"
     assert release_state("v2.15.1", None) == "unknown"
     assert release_state("2.5", "2.5.3") == "current"
+
+
+def test_pfsense_in_views(client):
+    db = client.app.state.console.db
+    n = client.get("/api/view/network").json()
+    assert [p["id"] for p in n["pfsense"]] == ["home", "brk"]
+    assert n["pfsense"][0]["host"] == "pfsense-home" and n["pfsense"][0]["devices"] == []
+    assert client.get("/api/view/host/dellpi").json()["network"] == {"box": "pfsense-home",
+                                                                     "device": None}
+    db.put_snapshot("pfsense.home.dhcp", "lease:10.0.0.6",
+                    {"ip": "10.0.0.6", "mac": "d8:9e:f3:11:22:33", "hostname": "dellpi",
+                     "descr": None, "kind": "static", "act": "static", "online": True,
+                     "starts": None, "ends": None, "if": "lan", "quiet": False})
+    db.put_snapshot("pfsense.home.dhcp", "arp:10.0.0.6",
+                    {"ip": "10.0.0.6", "mac": "d8:9e:f3:11:22:34", "if": "igc0",
+                     "permanent": False, "expires": 100, "quiet": False})
+    db.put_snapshot("pfsense.home.dhcp", "arp:10.0.0.77",
+                    {"ip": "10.0.0.77", "mac": "aa:bb:cc:dd:ee:ff", "if": "igc0",
+                     "permanent": False, "expires": 100, "quiet": False})
+    db.put_snapshot("pfsense.home.dhcp", "arp:85.229.40.1",
+                    {"ip": "85.229.40.1", "mac": "00:11:22:33:44:55", "if": "ix3",
+                     "permanent": False, "expires": 100, "quiet": False})
+    db.put_snapshot("pfsense.home", "box", {"states": 10, "state_limit": 100, "load": [0.1],
+                                            "wan_if": "ix3"})
+    db.put_snapshot("pfsense.home", "peer:brk", {"name": "pfsense-brk", "online": True})
+    db.put_snapshot("pve.home.config", "guest:904",
+                    {"vmid": 904, "type": "qemu", "nics": [{"name": "net0",
+                                                            "mac": "aa:bb:cc:dd:ee:ff"}],
+                     "disks": []})
+    d = client.get("/api/view/host/dellpi").json()["network"]
+    assert d["device"]["kind"] == "static" and d["device"]["mismatch"] is True
+    assert d["device"]["arp_mac"] == "d8:9e:f3:11:22:34" and d["device"]["host"] == "dellpi"
+    rows = {h["id"]: h for h in client.get("/api/view/hosts").json()["hosts"]}
+    assert rows["dellpi"]["mapping"] == "static" and rows["dellpi"]["mismatch"] is True
+    assert rows["proxmox"]["mapping"] is None and rows["brkpi5"]["mac"] is None
+    p = client.get("/api/view/network").json()["pfsense"][0]
+    assert [x["ip"] for x in p["devices"]] == ["10.0.0.6", "10.0.0.77"]  # not the WAN gateway
+    assert p["devices"][1]["kind"] == "arp" and p["devices"][1]["host"] is None
+    assert p["counts"] == {"static": 1, "dynamic": 0, "arp": 1, "online": 2, "quiet": 0,
+                           "mismatch": 1}
+    assert p["peers"][0]["name"] == "pfsense-brk" and p["box"]["states"] == 10
+    g = client.get("/api/view/host/testdebug").json()["guest"]
+    assert g["config"]["nics"][0]["lease"] == {"ip": "10.0.0.77", "kind": "arp"}
+    assert client.get("/network").status_code == 200

@@ -1,5 +1,5 @@
 from app.clock import in_window
-from app.views import State, link
+from app.views import State, link, network
 
 
 def rows(state: State) -> list[dict]:
@@ -8,6 +8,7 @@ def rows(state: State) -> list[dict]:
     systems = {v["name"]: (snap_ts, v) for _k, snap_ts, v in db.get_snapshots("beszel", "system:")}
     nas_on = in_window(config.nas_window, ts)
     beszel_url = link(config, "beszel")
+    known = network.device_index(state)
     out = []
     seen = set()
     for host in config.hosts.values():
@@ -25,7 +26,8 @@ def rows(state: State) -> list[dict]:
         else:
             status = "down"
         out.append(_row(host.id, host.ip, config.sites[host.site].name, host.role, host.rule,
-                        status, s, snap_ts, beszel_url, host.beszel))
+                        status, s, snap_ts, beszel_url, host.beszel,
+                        known.get(host.site, {}).get(host.ip)))
     for name, (snap_ts, s) in systems.items():
         if name in seen:
             continue
@@ -35,8 +37,9 @@ def rows(state: State) -> list[dict]:
     return out
 
 
-def _row(id_, ip, site, role, rule, status, s, snap_ts, beszel_url, beszel_name):
+def _row(id_, ip, site, role, rule, status, s, snap_ts, beszel_url, beszel_name, device=None):
     s = s or {}
+    device = device or {}
     return {
         "id": id_,
         "ip": ip,
@@ -55,6 +58,9 @@ def _row(id_, ip, site, role, rule, status, s, snap_ts, beszel_url, beszel_name)
         "down_since": s.get("down_since"),
         "snap_ts": snap_ts,
         "beszel": f"{beszel_url}/system/{beszel_name}" if beszel_url and beszel_name else None,
+        "mac": device.get("mac"),
+        "mapping": device.get("kind"),
+        "mismatch": device.get("mismatch", False),
     }
 
 

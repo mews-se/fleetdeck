@@ -259,13 +259,16 @@ const FD = (() => {
     return `<th class="${cls}${key ? ' sortable' : ''}"${key ? ` data-sort="${key}"` : ''}>${label}${arrow}</th>`;
   }
 
+  const dhcpKind = { static: 'good', dynamic: 'warn', arp: 'off' };
+  const dhcpPill = (h) => h.mapping ? pill(h.mismatch ? 'crit' : dhcpKind[h.mapping], h.mapping === 'arp' ? 'arp only' : h.mapping) : dash;
+
   R.hosts = (d) => {
     const c = d.counts;
     $('hosts-meta').textContent = `${c.up} of ${c.total} up · ${c.off} off by rule · ${c.noagent} without agent`;
     const kind = { up: 'good', down: 'crit', off: 'off', noagent: 'warn', paused: 'off' };
-    $('hosts-t').innerHTML = `<tr>${th('', 'status')}${th('Host', 'id')}${th('Address', 'ipnum')}${th('Site', 'site')}${th('Role', 'role')}${th('Agent', 'agent')}${th('CPU', 'cpu')}${th('Memory', 'mem')}${th('Disk', 'disk')}${th('Temp', 'temp', 'num')}${th('Up', 'uptime', 'num')}<th></th></tr>` +
+    $('hosts-t').innerHTML = `<tr>${th('', 'status')}${th('Host', 'id')}${th('Address', 'ipnum')}${th('MAC', 'mac')}${th('DHCP', 'mapping')}${th('Site', 'site')}${th('Role', 'role')}${th('Agent', 'agent')}${th('CPU', 'cpu')}${th('Memory', 'mem')}${th('Disk', 'disk')}${th('Temp', 'temp', 'num')}${th('Up', 'uptime', 'num')}<th></th></tr>` +
       sortHosts(d.hosts).map((h) => `<tr>
-        <td>${dot(kind[h.status])}</td><td><b>${h.rule ? `<a href="/hosts/${esc(h.id)}">${esc(h.id)}</a>` : esc(h.id)}</b></td><td class="mono">${esc(h.ip || '')}</td><td>${esc(h.site)}</td><td class="wrap">${esc(h.role)}</td>
+        <td>${dot(kind[h.status])}</td><td><b>${h.rule ? `<a href="/hosts/${esc(h.id)}">${esc(h.id)}</a>` : esc(h.id)}</b></td><td class="mono">${esc(h.ip || '')}</td><td class="mono small">${esc(h.mac || '')}</td><td>${dhcpPill(h)}</td><td>${esc(h.site)}</td><td class="wrap">${esc(h.role)}</td>
         <td class="sub">${h.status === 'noagent' ? '<span class="dim">none</span>' : h.status === 'down' ? `<span class="pill crit">down ${age(h.down_since)}</span>` : h.status === 'off' && !h.agent ? '<span class="dim">off</span>' : esc(h.agent || '')}${h.kernel ? `<br><span class="small">${esc(h.kernel)}</span>` : ''}</td>
         <td>${h.status === 'up' ? bar(h.cpu) : dash}</td><td>${h.status === 'up' ? bar(h.mem) : dash}</td><td>${h.status === 'up' ? bar(h.disk) : dash}</td>
         <td class="num">${h.status === 'up' && h.temp ? `${num(h.temp)} °C` : '—'}</td><td class="num">${h.status === 'up' ? span(h.uptime) : '—'}</td>
@@ -347,6 +350,22 @@ const FD = (() => {
       <div class="legend"><span><i class="data"></i>download Mbit/s</span><span><i class="data-2"></i>upload</span><span>${st.week.count} tests · ${st.week.failed} failed · min ${num(st.week.min)} · max ${num(st.week.max)}</span>${st.url ? `<a href="${esc(st.url)}" target="_blank" rel="noopener">open</a>` : ''}</div>
     </div>`).join('');
     d.speedtests.forEach((st) => chart(`st-${st.id}`, st.series[0], [st.series[1], st.series[2]], { min: 0, unit: ' Mbit/s', names: ['↓', '↑'] }));
+    $('pf').innerHTML = (d.pfsense || []).map((p) => {
+      const b = p.box || {}, t = b.tailscale, c = p.counts;
+      const online = p.peers.filter((x) => x.online).length;
+      const kv = p.ts ? `<dt>States</dt><dd>${num(b.states)}${b.state_limit ? ` of ${num(b.state_limit)} (${num(100 * b.states / b.state_limit, 1)} %)` : ''}</dd><dt>Load</dt><dd>${(b.load || []).map((x) => num(x, 2)).join(' ') || '—'}</dd><dt>Memory</dt><dd>${bar(b.mem_pct)}</dd><dt>Temp</dt><dd>${b.temp != null ? `${num(b.temp)} °C` : '—'}</dd><dt>unbound</dt><dd>${b.unbound_uptime != null ? `up ${span(b.unbound_uptime)}` : 'not running'}</dd><dt>Tailscale</dt><dd>${t ? `${esc(t.version || '')} · ${esc(t.state || '')} · ${online}/${p.peers.length} peers online${t.exit_option ? ' · exit node' : ''}` : 'not read'}</dd><dt>DHCP</dt><dd>${p.dhcp_ts ? `${c.static} static · ${c.dynamic} dynamic · ${c.arp} ARP only · ${c.online} online${c.quiet ? ` · ${c.quiet} quiet` : ''} · read ${age(p.dhcp_ts)} ago` : 'not read yet'}</dd>` : '<dt>Status</dt><dd>not read yet</dd>';
+      const peers = p.peers.length ? `<div class="tw" style="margin-top:8px"><table><tr><th></th><th>Peer</th><th>Tailscale IP</th><th>Path</th><th>Routes</th><th class="num">Rx</th><th class="num">Tx</th></tr>${p.peers.map((x) => `<tr><td>${dot(x.online ? 'good' : 'off')}</td><td><b>${esc(x.name)}</b>${x.os ? ` <span class="dim small">${esc(x.os)}</span>` : ''}</td><td class="mono">${esc(x.ip || '')}</td><td class="dim">${x.online ? (x.direct ? 'direct' : `relay ${esc(x.relay || '')}`) : 'offline'}${x.exit_node ? ' · exit node in use' : x.exit_option ? ' · offers exit' : ''}</td><td class="mono small">${(x.routes || []).map(esc).join(' ')}</td><td class="num">${gb(x.rx)}</td><td class="num">${gb(x.tx)}</td></tr>`).join('')}</table></div>` : '';
+      const devs = p.devices.length ? `<div class="tw" style="margin-top:8px"><table><tr><th></th><th>Address</th><th>MAC</th><th>Name</th><th>Description</th><th>DHCP</th><th>Lease ends</th><th>fleetdeck</th></tr>${p.devices.map((x) => `<tr${x.quiet ? ' class="dim"' : ''}><td>${dot(x.online ? 'good' : 'off')}</td><td class="mono">${esc(x.ip)}</td><td class="mono small">${esc(x.mac || '')}${x.mismatch ? `<br>${pill('crit', 'ARP ' + x.arp_mac)}` : ''}</td><td>${esc(x.hostname || '')}</td><td class="wrap">${esc(x.descr || '')}</td><td>${pill(dhcpKind[x.kind], x.kind === 'arp' ? 'arp only' : x.kind)}${x.quiet ? ' ' + pill('off', 'quiet') : ''}</td><td class="dim">${x.ends ? when(x.ends) : '—'}</td><td>${x.host ? `<a href="/hosts/${esc(x.host)}">${esc(x.host)}</a>` : ''}</td></tr>`).join('')}</table></div>` : '<div class="empty">No leases read yet.</div>';
+      return `<div class="panel" style="margin-top:16px">
+        <h3>pfSense · ${esc(p.site)} <span class="meta"><a href="/hosts/${esc(p.host)}">${esc(p.host)}</a> · ${esc(p.ip)}${p.ts ? ` · ${esc(b.version || '')} · up ${span(b.uptime)} · ${age(p.ts)} ago` : ''}${p.url ? ` · <a href="${esc(p.url)}" target="_blank" rel="noopener">web UI</a>` : ''}</span></h3>
+        <div class="two"><dl class="kv">${kv}</dl><div><div class="legend"><span><i class="data"></i>WAN ${esc(b.wan_if || '')} in Mbit/s</span><span><i class="data-2"></i>out</span></div><div class="chart tall" id="pf-wan-${esc(p.id)}"></div></div></div>
+        ${peers}${devs}
+      </div>`;
+    }).join('');
+    (d.pfsense || []).forEach((p) => {
+      const xs = p.series.wan_in[0], outBy = new Map(p.series.wan_out[0].map((t, i) => [t, p.series.wan_out[1][i]]));
+      chart(`pf-wan-${p.id}`, xs, [p.series.wan_in[1], xs.map((t) => outBy.get(t) ?? null)], { min: 0, unit: ' Mbit/s', names: ['↓', '↑'] });
+    });
   };
 
   R.upstream = (d) => {
@@ -387,6 +406,11 @@ const FD = (() => {
     else kv += `<dt>Beszel</dt><dd>${h.beszel ? `no data for ${esc(h.beszel)} yet` : 'no agent configured'}</dd>`;
     const p = d.pve_node;
     if (p) kv += `<dt>PVE</dt><dd>${esc(p.version || '?')} · ${p.running ?? '—'}/${p.guests ?? '—'} guests running · root ${num(p.root_pct)} % · <a href="${esc(p.url)}" target="_blank" rel="noopener">web UI</a> · <a href="/guests">guests</a></dd>`;
+    const n = d.network;
+    if (n) {
+      const x = n.device;
+      kv += `<dt>DHCP</dt><dd>${x ? `${dhcpPill({ mapping: x.kind, mismatch: x.mismatch })} <span class="mono">${esc(x.mac || '')}</span>${x.mismatch ? ` · ARP says <span class="mono">${esc(x.arp_mac)}</span>` : ''} · ${x.online ? 'seen in ARP' : 'not in ARP'}${x.hostname ? ` · ${esc(x.hostname)}` : ''}${x.ends ? ` · until ${when(x.ends)}` : ''}` : `no mapping or lease on ${esc(n.box)}`} · <a href="/network">network</a></dd>`;
+    }
     $('sys-kv').innerHTML = kv;
     chart('ch-cpu', d.series.cpu[0], [d.series.cpu[1]], { min: 0, max: 100, unit: ' %' });
     chart('ch-mem', d.series.mem[0], [d.series.mem[1]], { min: 0, max: 100, unit: ' %' });
@@ -405,7 +429,7 @@ const FD = (() => {
       const c = g.config;
       $('guest-kv').innerHTML = `<dt>State</dt><dd>${statePill(g.status)} ${btn}</dd><dt>CPU</dt><dd>${g.status === 'running' ? bar(g.cpu) : '—'}</dd><dt>Memory</dt><dd>${g.status === 'running' ? bar(g.mem_pct) : '—'}${g.maxmem ? ` of ${gb(g.maxmem)}` : ''}</dd><dt>Uptime</dt><dd>${g.status === 'running' ? span(g.uptime) : '—'}</dd><dt>Note</dt><dd>${esc([g.free ? 'free guest' : '', (g.tags || '').replace(/;/g, ' ')].filter(Boolean).join(' · ') || '—')}</dd>` +
         (c ? `<dt>Config</dt><dd>${c.cores ?? '?'} cores${c.sockets > 1 ? ` × ${c.sockets}` : ''} · ${c.memory ?? '?'} MiB${c.swap ? ` + ${c.swap} swap` : ''}${c.ostype ? ` · ${esc(c.ostype)}` : ''}${c.unprivileged ? ' · unprivileged' : ''}</dd><dt>Boot</dt><dd>${c.onboot ? 'on boot' : 'manual'}${c.startup ? ` · ${esc(c.startup)}` : ''}${c.agent ? ' · guest agent' : ''}</dd>` : '<dt>Config</dt><dd>not read yet</dd>');
-      $('guest-t').innerHTML = c ? `<tr><th>NIC</th><th>MAC</th><th>Bridge</th><th>IP</th></tr>${(c.nics || []).map((n) => `<tr><td class="mono">${esc(n.name)}${n.model ? ` <span class="dim">${esc(n.model)}</span>` : ''}</td><td class="mono">${esc(n.mac || '—')}</td><td class="mono">${esc(n.bridge || '—')}${n.vlan ? ` tag ${n.vlan}` : ''}</td><td class="mono">${esc(n.ip || '—')}</td></tr>`).join('')}<tr><th>Disk</th><th>Volume</th><th>Storage</th><th class="num">Size</th></tr>${(c.disks || []).map((x) => `<tr><td class="mono">${esc(x.name)}</td><td class="mono">${esc(x.volume || '')}</td><td class="mono">${esc(x.storage || '—')}</td><td class="num">${esc(x.size || '—')}</td></tr>`).join('')}` : '';
+      $('guest-t').innerHTML = c ? `<tr><th>NIC</th><th>MAC</th><th>Bridge</th><th>IP</th><th>DHCP</th></tr>${(c.nics || []).map((n) => `<tr><td class="mono">${esc(n.name)}${n.model ? ` <span class="dim">${esc(n.model)}</span>` : ''}</td><td class="mono">${esc(n.mac || '—')}</td><td class="mono">${esc(n.bridge || '—')}${n.vlan ? ` tag ${n.vlan}` : ''}</td><td class="mono">${esc(n.ip || '—')}</td><td>${n.lease ? `<span class="mono">${esc(n.lease.ip)}</span> ${pill(dhcpKind[n.lease.kind], n.lease.kind)}` : dash}</td></tr>`).join('')}<tr><th>Disk</th><th>Volume</th><th>Storage</th><th class="num">Size</th><th></th></tr>${(c.disks || []).map((x) => `<tr><td class="mono">${esc(x.name)}</td><td class="mono">${esc(x.volume || '')}</td><td class="mono">${esc(x.storage || '—')}</td><td class="num">${esc(x.size || '—')}</td></tr>`).join('')}` : '';
       extra = Object.entries(act).map(([op, id]) => ({ id, title: `${op === 'start' ? 'Start' : op === 'shutdown' ? 'Shut down' : op} ${g.type} ${g.vmid}`, target: g.node, policy: 'free', summary: `${op} ${g.vmid}`, params: [] }));
     }
     const cg = d.containers;

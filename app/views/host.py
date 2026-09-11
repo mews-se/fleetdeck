@@ -2,7 +2,7 @@
 
 from urllib.parse import urlsplit
 
-from app.views import State, containers, hosts, link
+from app.views import State, containers, hosts, link, network
 from app.views.actions import catalog
 
 DAY = 86400
@@ -31,13 +31,17 @@ def _monitors(state: State, host) -> list[dict]:
     return out
 
 
-def _guest(state: State, host) -> dict | None:
+def _guest(state: State, host, known: dict) -> dict | None:
     if not host.guest:
         return None
     config, db = state.config, state.db
     g = host.guest
     live = db.get_snapshot(f"pve.{g.pve}", f"guest:{g.vmid}") or {}
     cfg = db.get_snapshot(f"pve.{g.pve}.config", f"guest:{g.vmid}")
+    by_mac = {d["mac"]: d for d in known.get(host.site, {}).values() if d.get("mac")}
+    for nic in (cfg or {}).get("nics") or []:
+        d = by_mac.get(nic.get("mac"))
+        nic["lease"] = {"ip": d["ip"], "kind": d["kind"]} if d else None
     node = config.pve_host(g.pve)
     power = {
         a.run["op"]: a.id for a in state.actions
@@ -81,9 +85,17 @@ def _pve_node(state: State, host) -> dict | None:
     }
 
 
+def _network(state: State, host, known: dict) -> dict | None:
+    box = state.config.pfsense_for_site(host.site)
+    if box is None:
+        return None
+    return {"box": box.host, "device": known.get(host.site, {}).get(host.ip)}
+
+
 def build(state: State, host_id: str) -> dict:
     config, db = state.config, state.db
     host = config.hosts[host_id]
+    known = network.device_index(state)
     summary = next(r for r in hosts.rows(state) if r["id"] == host_id)
     system = db.get_snapshot("beszel", f"system:{host.beszel}") if host.beszel else None
     if system is not None:
@@ -122,8 +134,9 @@ def build(state: State, host_id: str) -> dict:
         },
         "system": system,
         "series": _series(state, host.beszel),
-        "guest": _guest(state, host),
+        "guest": _guest(state, host, known),
         "pve_node": _pve_node(state, host),
+        "network": _network(state, host, known),
         "containers": group,
         "monitors": _monitors(state, host),
         "dns": {"queries": dns},
