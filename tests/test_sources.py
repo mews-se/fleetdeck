@@ -419,7 +419,7 @@ def test_metric_rules(cfg):
         return {**base, **extra}
 
     db.put_snapshots("beszel", {
-        "system:hot": system("hot", temp=61),
+        "system:hot": system("hot", temp=66),
         "system:cooked": system("cooked", temp=70.4),
         "system:busy": system("busy", load=[9, 8, 4.5]),
         "system:broken": system("broken", services=[40, 2],

@@ -25,7 +25,7 @@ and get linked; fleetdeck is the page you open first.
   minutes (a host on the NAS schedule only inside its window, one marked
   off by default never), a disk past 85 or 95 percent on a host or a PVE
   storage, CPU or memory averaging 90 percent over five minutes, a
-  temperature reading of 60 or 70 degrees, a 15 minute load at or above the
+  temperature reading of 65 or 70 degrees, a 15 minute load at or above the
   thread count, 100 MB/s of traffic for five minutes, a failed systemd
   service, an unhealthy container, an Uptime Kuma monitor down, image
   updates waiting in Dockhand, a speed test instance failing more than 40
