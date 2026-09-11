@@ -11,7 +11,7 @@
 <link rel="manifest" href="/static/brand/site.webmanifest">
 <meta name="theme-color" content="#0f1318">
 <link rel="stylesheet" href="/static/vendor/uplot/uPlot.min.css">
-<link rel="stylesheet" href="/static/css/fleetdeck.css">
+<link rel="stylesheet" href="/static/css/fleetdeck.css?v={{ version }}">
 </head>
 <body>
 <div class="app">
@@ -44,7 +44,7 @@
 </div>
 <script id="data" type="application/json">{{ data|tojson }}</script>
 <script src="/static/vendor/uplot/uPlot.min.js"></script>
-<script src="/static/js/fleetdeck.js"></script>
+<script src="/static/js/fleetdeck.js?v={{ version }}"></script>
 <script>FD.init({{ page|tojson }}{% block init_args %}{% endblock %});</script>
 </body>
 </html>

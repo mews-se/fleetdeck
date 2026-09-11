@@ -36,6 +36,7 @@ def test_pages_render(client, path):
     assert r.status_code == 200
     assert 'name="confirm-token"' in r.text
     assert '<script id="data" type="application/json">' in r.text
+    assert 'src="/static/js/fleetdeck.js?v=' in r.text
 
 
 def test_host_page(client):
