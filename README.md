@@ -12,8 +12,8 @@ are waiting on, plus an allowlisted catalog of actions that run over ssh or
 the Proxmox API and are logged.
 
 It does not replace the tools it reads from. Beszel, Dockhand, Uptime Kuma,
-AdGuard Home, speedtest-tracker and GitHub keep their own interfaces and get
-linked; fleetdeck is the page you open first.
+AdGuard Home, speedtest-tracker, pfSense and GitHub keep their own interfaces
+and get linked; fleetdeck is the page you open first.
 
 ## What it shows
 
@@ -24,17 +24,21 @@ linked; fleetdeck is the page you open first.
   itself if the item gets worse.
 - **Hosts**: every Beszel agent with CPU, memory, disk, temperature and uptime,
   joined with the host list from the config so a test VM that is off by rule
-  shows grey, not red. Each host has its own page with 24 hours of curves, the
-  guest it runs as and its config read from PVE, its containers, the Uptime
-  Kuma monitors that point at it, its share of the day's DNS queries, and the
-  catalog entries and runs that concern it.
+  shows grey, not red, plus the MAC and the kind of DHCP entry pfSense has for
+  its address. Each host has its own page with 24 hours of curves, the guest
+  it runs as and its config read from PVE (with the lease behind every NIC),
+  its containers, the Uptime Kuma monitors that point at it, its share of the
+  day's DNS queries, and the catalog entries and runs that concern it.
 - **Guests**: both Proxmox nodes with their guests and storages. Guests listed
   as free start and stop from here; everything else links to PDM.
 - **Containers**: every Dockhand environment with image, state and pending
   image updates, and a button per row for the container operations the
   catalog allows there.
 - **Network**: Uptime Kuma monitors, AdGuard Home statistics with the last
-  24 hours as a curve, and seven days of speed tests per site.
+  24 hours as a curve, seven days of speed tests per site, and per pfSense
+  box its state table, load, temperature, WAN throughput over the day, the
+  Tailscale peers, and every DHCP mapping, lease and ARP entry with the
+  fleetdeck host it belongs to.
 - **Upstream**: the issues and pull requests you are waiting on, and the
   releases you run against the latest tag. The running version comes from
   the image's version label, the app's own API or a versioned image tag.
@@ -142,6 +146,39 @@ Both files have a complete example next to them in `config/`.
 
 A source whose secret file is missing is left out and listed as not
 configured; everything else keeps running.
+
+## pfSense
+
+pfSense is read over ssh with the console key, but the key never gets a
+shell there: the authorized key line carries `command=`, so every login runs
+`contrib/pfsense/fleetdeck-read.sh`, which answers three read-only
+subcommands (`dhcp`, `status`, `tailscale`) and refuses anything else. Put
+the script at `/root/fleetdeck-read.sh` on each box (`chmod 755`) and add the
+line from `contrib/pfsense/authorized_keys.example` under System → User
+Manager → the ssh user → Authorized SSH Keys, with your own `from=` address
+and public key. Then list the boxes under `sources.pfsense` with the host
+that carries their ssh address:
+
+```yaml
+sources:
+  pfsense:
+    home: {host: pfsense-home, timezone: Europe/Stockholm}
+    brk:  {host: pfsense-brk, timezone: Europe/Stockholm,
+           quiet: [10.0.1.40-10.0.1.50, 10.0.1.60-10.0.1.75]}
+```
+
+`timezone` is the box's own, used to read lease times. `quiet` lists
+addresses, ranges or networks that stay in the device table but never raise
+attention, for the access points and cameras nobody manages from here.
+Everything is read every five minutes (the lease read is one PHP start,
+about a third of a second on a C3000 Atom); a failing box is retried with a
+growing pause, up to an hour, so a wrong key line cannot trip sshguard on
+the firewall.
+
+The attention list gets four rules from it: a host in the config whose
+address has no static mapping, a static mapping whose address answers from
+another MAC, a running PVE guest whose NIC has neither mapping nor lease,
+and a resolver that restarted in the last hour.
 
 ## Development
 
