@@ -65,13 +65,11 @@ class Console:
         for name in configmod.missing_secrets(self.config, self.secrets):
             log.warning("secret %s is missing in %s", name, s.secrets)
         self.db = Database(s.db)
-        self.ctx = make_context(self.db, self.config, self.secrets)
+        self.ctx = make_context(self.db, self.config, self.secrets,
+                                lambda host, argv: ssh_argv(host, argv, s.key, s.known_hosts))
         sources, self.unconfigured = build_sources(self.ctx)
         self.scheduler = Scheduler(self.ctx, sources, self.events)
-        self.runner = Runner(
-            self.ctx, self.actions, s.runs, self.events,
-            lambda host, argv: ssh_argv(host, argv, s.key, s.known_hosts),
-        )
+        self.runner = Runner(self.ctx, self.actions, s.runs, self.events, self.ctx.ssh_argv)
         if run_scheduler:
             self.scheduler.start()
         log.info("fleetdeck %s: %d hosts, %d sources, %d actions",

@@ -5,6 +5,7 @@ environment and a PVE guest all resolve to one host id. Secrets are never in
 the file, only the name of a file in the secrets directory.
 """
 
+import ipaddress
 import os
 import re
 import zoneinfo
@@ -72,6 +73,23 @@ class Endpoint:
 
 
 @dataclass
+class Pfsense:
+    id: str
+    host: str
+    site: str
+    timezone: str = "UTC"
+    # address ranges that never raise attention, as (first, last) integers
+    quiet: list[tuple[int, int]] = field(default_factory=list)
+
+    def is_quiet(self, ip: str) -> bool:
+        try:
+            n = int(ipaddress.ip_address(ip))
+        except ValueError:
+            return False
+        return any(lo <= n <= hi for lo, hi in self.quiet)
+
+
+@dataclass
 class WatchThread:
     repo: str
     numbers: list[int]
@@ -103,6 +121,7 @@ class Config:
     pve: dict[str, Pve]
     sources: dict[str, Endpoint]
     speedtests: dict[str, Endpoint]
+    pfsense: dict[str, Pfsense]
     github: Github
     links: dict[str, str]
     nas_window: Window | None
@@ -123,6 +142,9 @@ class Config:
 
     def pve_host(self, pve_id: str) -> Host | None:
         return next((h for h in self.hosts.values() if h.pve == pve_id), None)
+
+    def pfsense_for_site(self, site: str) -> Pfsense | None:
+        return next((b for b in self.pfsense.values() if b.site == site), None)
 
 
 class Secrets:
@@ -195,19 +217,66 @@ def _url(d: dict, where: str) -> str:
     return url.rstrip("/")
 
 
-def _endpoint(id_: str, d: dict, where: str, site_required=False) -> Endpoint:
-    d = _mapping(d, where)
+def _timezone(d: dict, where: str) -> str:
     tz = _str(d, "timezone", where, default="UTC")
     try:
         zoneinfo.ZoneInfo(tz)
     except (zoneinfo.ZoneInfoNotFoundError, ValueError):
         raise ConfigError(f"{where}: unknown timezone '{tz}'") from None
+    return tz
+
+
+def _endpoint(id_: str, d: dict, where: str, site_required=False) -> Endpoint:
+    d = _mapping(d, where)
     return Endpoint(
         id=id_,
         url=_url(d, where),
         secret=_str(d, "secret", where, required=False),
         site=_str(d, "site", where, required=site_required),
-        timezone=tz,
+        timezone=_timezone(d, where),
+    )
+
+
+def _quiet(values, where: str) -> list[tuple[int, int]]:
+    if values is None:
+        return []
+    if not isinstance(values, list):
+        raise ConfigError(f"{where}: quiet must be a list")
+    out = []
+    for v in values:
+        try:
+            if not isinstance(v, str):
+                raise ValueError
+            if "-" in v:
+                lo, hi = (ipaddress.ip_address(x.strip()) for x in v.split("-", 1))
+            elif "/" in v:
+                net = ipaddress.ip_network(v, strict=False)
+                lo, hi = net[0], net[-1]
+            else:
+                lo = hi = ipaddress.ip_address(v)
+        except ValueError:
+            raise ConfigError(
+                f"{where}: quiet entry {v!r} is not an address, a range or a network"
+            ) from None
+        if int(lo) > int(hi):
+            raise ConfigError(f"{where}: quiet range '{v}' ends before it starts")
+        out.append((int(lo), int(hi)))
+    return out
+
+
+def _pfsense(id_: str, d: dict, where: str, hosts: dict[str, Host]) -> Pfsense:
+    d = _mapping(d, where)
+    host = _str(d, "host", where)
+    if host not in hosts:
+        raise ConfigError(f"{where}: unknown host '{host}'")
+    if not hosts[host].ssh:
+        raise ConfigError(f"{where}: host '{host}' has no ssh address")
+    return Pfsense(
+        id=id_,
+        host=host,
+        site=hosts[host].site,
+        timezone=_timezone(d, where),
+        quiet=_quiet(d.get("quiet"), where),
     )
 
 
@@ -291,6 +360,7 @@ def parse(data: dict) -> Config:
 
     sources = {}
     speedtests = {}
+    pfsense = {}
     for name, s in _mapping(data.get("sources"), "sources").items():
         where = f"sources.{name}"
         if name == "speedtest":
@@ -300,6 +370,10 @@ def parse(data: dict) -> Config:
                 if ep.site not in sites:
                     raise ConfigError(f"{where}.{iid}: unknown site '{ep.site}'")
                 speedtests[iid] = ep
+        elif name == "pfsense":
+            for bid, box in _mapping(s, where).items():
+                _id(bid, where)
+                pfsense[bid] = _pfsense(bid, box, f"{where}.{bid}", hosts)
         elif name in ("beszel", "dockhand", "kuma", "adguard"):
             sources[name] = _endpoint(name, s, where)
         else:
@@ -370,6 +444,7 @@ def parse(data: dict) -> Config:
         pve=pve,
         sources=sources,
         speedtests=speedtests,
+        pfsense=pfsense,
         github=github,
         links=links,
         nas_window=nas_window,

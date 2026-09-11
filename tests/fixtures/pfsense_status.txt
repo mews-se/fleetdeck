@@ -1,0 +1,22 @@
+== version
+26.07-RELEASE
+== boottime
+{ sec = 1799000000, usec = 123456 } Fri Sep  4 10:13:20 2026
+== temp
+43.0C
+== load
+{ 0.20 0.18 0.15 }
+== mem
+8477040640
+4096
+1200000
+300000
+== states
+  current entries                      12345
+states        hard limit   400000
+== wan ix3
+Name    Mtu Network       Address              Ipkts Ierrs Idrop     Ibytes    Opkts Oerrs     Obytes  Coll
+ix3    1500 <Link#4>      00:e0:67:2a:1b:3c 400000000     0     0 1580000000000 300000000     0 2740000000000     0
+ix3       - 37.122.145.112/28 37.122.145.122  399999000     -     - 1579990000000 299999000     - 2739990000000     -
+== unbound
+  86400

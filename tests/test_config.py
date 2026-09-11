@@ -22,6 +22,10 @@ def test_example_loads(cfg):
     assert cfg.host_by_env(5).id == "dietpibrk"
     assert cfg.pve_host("home").id == "proxmox"
     assert cfg.nas_window.start == "15:00"
+    assert cfg.pfsense["brk"].host == "pfsense-brk" and cfg.pfsense["brk"].site == "brk"
+    assert cfg.pfsense["brk"].is_quiet("10.0.1.45") and not cfg.pfsense["brk"].is_quiet("10.0.1.8")
+    assert not cfg.pfsense["home"].is_quiet("10.0.1.45") and not cfg.pfsense["home"].is_quiet("x")
+    assert cfg.pfsense_for_site("home").id == "home" and cfg.pfsense_for_site("moon") is None
 
 
 @pytest.mark.parametrize(
@@ -41,6 +45,14 @@ def test_example_loads(cfg):
          "no host carries"),
         (lambda d: d["sources"].update({"pihole": {"url": "http://x"}}), "unknown source"),
         (lambda d: d["sources"]["speedtest"]["home"].pop("site"), "site is required"),
+        (lambda d: d["sources"]["pfsense"]["home"].update(host="nope"), "unknown host"),
+        (lambda d: d["sources"]["pfsense"]["home"].update(host="mbp"), "no ssh address"),
+        (lambda d: d["sources"]["pfsense"]["brk"].update(quiet=["10.0.1.50-10.0.1.40"]),
+         "ends before"),
+        (lambda d: d["sources"]["pfsense"]["brk"].update(quiet=["lan"]), "not an address"),
+        (lambda d: d["sources"]["pfsense"]["brk"].update(quiet="10.0.1.40"), "must be a list"),
+        (lambda d: d["sources"]["pfsense"]["brk"].update(timezone="Mars/Olympus"),
+         "unknown timezone"),
         (lambda d: d["github"]["watch_threads"][0].update(repo="domain-monitor"), "owner/name"),
         (lambda d: d["github"]["watch_threads"][0].update(numbers=[]), "numbers must be"),
         (lambda d: d["github"]["watch_releases"][0].update(running_from={"beszel_os": "x"}),

@@ -15,6 +15,13 @@ log = logging.getLogger("fleetdeck.scheduler")
 ATTENTION_THROTTLE = 10
 PRUNE_INTERVAL = 3600
 VACUUM_INTERVAL = 86400
+BACKOFF_MAX = 3600
+
+
+def next_delay(source: Source, errors: int) -> float:
+    if not source.backoff or errors == 0:
+        return float(source.interval)
+    return float(min(source.interval * 2 ** min(errors, 8), BACKOFF_MAX))
 
 
 class Scheduler:
@@ -41,13 +48,15 @@ class Scheduler:
 
     async def _loop(self, source: Source):
         await asyncio.sleep(random.uniform(0, min(5.0, source.interval / 4)))
+        errors = 0
         while True:
             started = time.monotonic()
-            await self._tick(source)
+            state = await self._tick(source)
+            errors = errors + 1 if state == "error" else 0
             elapsed = time.monotonic() - started
-            await asyncio.sleep(max(1.0, source.interval - elapsed))
+            await asyncio.sleep(max(1.0, next_delay(source, errors) - elapsed))
 
-    async def _tick(self, source: Source):
+    async def _tick(self, source: Source) -> str:
         started = time.monotonic()
         state, error = "ok", None
         try:
@@ -71,6 +80,7 @@ class Scheduler:
             self.status[source.name] = state
             self.events.publish("source", {"source": source.name, "state": state, "error": error})
         await self.refresh_attention()
+        return state
 
     async def refresh_attention(self, force: bool = False):
         if not force and time.monotonic() < self._attention_due:

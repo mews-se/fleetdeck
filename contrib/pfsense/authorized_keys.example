@@ -1,0 +1,1 @@
+from="10.0.0.6",command="/root/fleetdeck-read.sh",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpFd8wNTJq+bulYKBrpqy028Bh3QpsDF9jvj23udsPd fleetdeck@dellpi

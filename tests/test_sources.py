@@ -6,8 +6,8 @@ import pytest
 
 from app import attention, sources
 from app.db import Database
-from app.sources import adguard, beszel, dockhand, github, kuma, pve, speedtest
-from tests.conftest import fixture
+from app.sources import adguard, beszel, dockhand, github, kuma, pfsense, pve, speedtest
+from tests.conftest import FIXTURES, fixture
 
 NOW = 1_800_000_000
 
@@ -378,3 +378,120 @@ def test_attention_rules(cfg):
     # nas is down but inside the window only counts; outside it is expected
     from app.clock import in_window
     assert (("beszel", "nas") in keys) == in_window(cfg.nas_window, NOW)
+
+
+def test_pfsense_status():
+    text = fixture("pfsense_status.txt")
+    box, samples = pfsense.parse_status("home", text, None, None, NOW)
+    assert box["version"] == "26.07-RELEASE" and box["uptime"] == 1_000_000
+    assert box["temp"] == 43.0 and box["load"] == [0.2, 0.18, 0.15] and box["mem_pct"] == 27.5
+    assert box["states"] == 12345 and box["state_limit"] == 400000
+    assert box["wan_if"] == "ix3" and box["wan_in_bytes"] == 1580000000000
+    assert box["wan_out_bytes"] == 2740000000000 and box["unbound_uptime"] == 86400
+    assert {s[0] for s in samples} == {"pfsense.home.states", "pfsense.home.temp",
+                                       "pfsense.home.mem_pct", "pfsense.home.load"}
+    prev = {**box, "wan_in_bytes": box["wan_in_bytes"] - 37_500_000,
+            "wan_out_bytes": box["wan_out_bytes"] - 75_000_000}
+    _, samples = pfsense.parse_status("home", text, prev, NOW - 300, NOW)
+    by = {s[0]: s[2] for s in samples}
+    assert by["pfsense.home.wan_in"] == 1.0 and by["pfsense.home.wan_out"] == 2.0
+    assert "pfsense.home.unbound_restart" not in by
+    _, samples = pfsense.parse_status("home", text.replace("86400", "100"), prev, NOW - 300, NOW)
+    assert ("pfsense.home.unbound_restart", NOW, 1.0) in samples
+    _, samples = pfsense.parse_status("home", text, {**prev, "wan_in_bytes": 9e15}, NOW - 300, NOW)
+    assert "pfsense.home.wan_in" not in {s[0] for s in samples}
+    bare, samples = pfsense.parse_status("home", "== version\n", None, None, NOW)
+    assert bare["states"] is None and bare["uptime"] is None and bare["load"] == []
+    assert samples == []
+
+
+def test_pfsense_dhcp(cfg):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    data = json.loads(fixture("pfsense_dhcp.json"))
+    snaps = pfsense.parse_dhcp(data, cfg.pfsense["home"])
+    lease = snaps["lease:10.0.0.6"]
+    assert lease["kind"] == "static" and lease["online"] is True
+    assert lease["descr"] == "Docker host" and lease["starts"] is None and lease["if"] == "lan"
+    dyn = snaps["lease:10.0.0.201"]
+    assert dyn["kind"] == "dynamic" and dyn["act"] == "active" and dyn["online"] is False
+    assert dyn["ends"] == datetime(2026, 9, 11, 20, tzinfo=ZoneInfo("Europe/Stockholm")).timestamp()
+    assert "arp:10.0.0.250" not in snaps and "lease:10.0.0.202" not in snaps
+    assert snaps["arp:10.0.0.1"]["permanent"] is True and snaps["arp:10.0.0.77"]["expires"] == 300
+    assert snaps["arp:10.0.0.181"]["mac"] == "bc:24:11:aa:bb:dd"
+    assert snaps["arp:85.229.40.1"]["if"] == "ix3"
+    assert snaps["lease:10.0.1.45"]["quiet"] is False
+    brk = pfsense.parse_dhcp(data, cfg.pfsense["brk"])
+    assert brk["lease:10.0.1.45"]["quiet"] is True and brk["lease:10.0.0.6"]["quiet"] is False
+    assert pfsense.parse_dhcp({}, cfg.pfsense["home"]) == {}
+
+
+def test_pfsense_tailscale():
+    peers, me = pfsense.parse_tailscale(json.loads(fixture("pfsense_tailscale.json")))
+    assert me["name"] == "pfsense-home" and me["hostname"] == "pfsense"
+    assert me["version"].startswith("1.98.5")
+    assert me["state"] == "Running" and me["exit_option"] is True
+    assert me["routes"] == ["10.0.0.0/24"]
+    assert peers["pfsense-brk"]["direct"] is True and peers["pfsense-brk"]["online"] is True
+    assert peers["pfsense-brk"]["routes"] == ["10.0.1.0/24"]
+    assert peers["m-iphone"]["online"] is False and peers["m-iphone"]["direct"] is False
+    assert peers["m-iphone"]["hostname"] == "localhost" and "pfsense" not in peers
+    assert peers["m-iphone"]["routes"] == [] and peers["m-iphone"]["relay"] == "sto"
+    assert pfsense.parse_tailscale({})[0] == {}
+
+
+def fake_ssh(host, argv):
+    name = {"status": "pfsense_status.txt", "dhcp": "pfsense_dhcp.json",
+            "tailscale": "pfsense_tailscale.json"}[argv[0]]
+    return ["cat", str(FIXTURES / name)]
+
+
+@pytest.mark.asyncio
+async def test_pfsense_collect(cfg, secrets):
+    ctx = make_ctx(cfg, secrets, route({}))
+    assert pfsense.build(ctx) == ([], {"pfsense.home": "no ssh key configured",
+                                       "pfsense.brk": "no ssh key configured"})
+    ctx.ssh_argv = fake_ssh
+    built, missing = pfsense.build(ctx)
+    assert missing == {}
+    assert [s.name for s in built] == ["pfsense.home", "pfsense.home.dhcp", "pfsense.brk",
+                                       "pfsense.brk.dhcp"]
+    assert all(s.backoff for s in built) and built[1].timeout == 120
+    for s in built:
+        await s.collect()
+    box = ctx.db.get_snapshot("pfsense.home", "box")
+    assert box["states"] == 12345 and box["tailscale"]["name"] == "pfsense-home"
+    assert ctx.db.get_snapshot("pfsense.home", "peer:m-iphone")["online"] is False
+    assert ctx.db.get_snapshot("pfsense.brk.dhcp", "lease:10.0.1.45")["quiet"] is True
+    assert ctx.db.get_snapshot("pfsense.home.dhcp", "lease:10.0.1.45")["quiet"] is False
+    assert ctx.db.latest_sample("pfsense.home.states")[1] == 12345
+
+    def half(host, argv):
+        return fake_ssh(host, argv) if argv[0] == "status" else ["sh", "-c", "exit 1"]
+
+    ctx.ssh_argv = half
+    with pytest.raises(sources.SourceError, match="tailscale"):
+        await built[0].collect()
+    assert ctx.db.get_snapshot("pfsense.home", "box")["states"] == 12345
+    assert ctx.db.get_snapshots("pfsense.home", "peer:") == []
+    ctx.ssh_argv = lambda host, argv: ["sh", "-c",
+                                       "echo 'Permission denied (publickey).' >&2; exit 255"]
+    with pytest.raises(sources.SourceError, match=r"exit 255.*Permission denied"):
+        await built[0].collect()
+    ctx.ssh_argv = lambda host, argv: ["sh", "-c", "echo not json"]
+    with pytest.raises(sources.SourceError, match="not JSON"):
+        await built[1].collect()
+
+
+def test_next_delay():
+    from app.scheduler import next_delay
+
+    class S(sources.Source):
+        interval = 300
+        backoff = True
+
+    s = S.__new__(S)
+    assert [next_delay(s, n) for n in (0, 1, 2, 3, 4, 40)] == [300, 600, 1200, 2400, 3600, 3600]
+    s.backoff = False
+    assert next_delay(s, 5) == 300
+
