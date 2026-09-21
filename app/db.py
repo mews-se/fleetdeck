@@ -119,6 +119,7 @@ RETENTION = {
     "speedtests": 365 * DAY,
     "source_runs": 7 * DAY,
     "attention": 30 * DAY,
+    "threads": 14 * DAY,
 }
 
 
@@ -366,6 +367,9 @@ class Database:
             "SELECT * FROM upstream_threads ORDER BY repo, number"
         )]
 
+    def delete_thread(self, repo: str, number: int):
+        self._write("DELETE FROM upstream_threads WHERE repo = ? AND number = ?", (repo, number))
+
     def upsert_release(self, repo: str, latest_tag: str | None, published_at: str | None,
                        url: str | None, running_version: str | None,
                        running_source: str | None, ts: int | None = None):
@@ -513,6 +517,10 @@ class Database:
             self.conn.execute(
                 "DELETE FROM attention WHERE cleared_ts IS NOT NULL AND cleared_ts < ?",
                 (ts - RETENTION["attention"],),
+            )
+            self.conn.execute(
+                "DELETE FROM upstream_threads WHERE state != 'open' AND seen_ts < ?",
+                (ts - RETENTION["threads"],),
             )
             self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 

@@ -184,12 +184,13 @@ sources:
 
 github:
   secret: github.token
+  # every open issue and pull request this account started in somebody
+  # else's repository; threads started by others are listed by number
+  watch_author: mews-se
   watch_threads:
-    - {repo: Hosteroid/domain-monitor, numbers: [98, 99, 100]}
-    - {repo: namazso/PawnIO.Modules, numbers: [105]}
-    - {repo: Shuzhengz/TPFanCtrl2, numbers: [119]}
-    - {repo: tobiasehlert/teslamateapi, numbers: [532, 534]}
-    - {repo: teslamate-org/teslamate, numbers: [5637]}
+    - {repo: Hosteroid/domain-monitor, numbers: [76, 97]}
+    - {repo: Shuzhengz/TPFanCtrl2, numbers: [117]}
+    - {repo: teslamate-org/teslamate, numbers: [5583]}
   watch_releases:
     - {repo: henrygd/beszel, running_from: {dockhand: {env: 1, container: beszel}}}
     - {repo: NginxProxyManager/nginx-proxy-manager, running_from: {npm: {url: http://10.0.0.6:81}}}

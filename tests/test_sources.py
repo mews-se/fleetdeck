@@ -295,6 +295,8 @@ async def test_speedtest(cfg, secrets):
 
 @pytest.mark.asyncio
 async def test_github(cfg, secrets):
+    fetched = []
+
     def handler(request):
         p = request.url.path
         if request.url.host == "10.0.0.6":
@@ -302,12 +304,17 @@ async def test_github(cfg, secrets):
             return httpx.Response(200, json={"status": "OK", "setup": True,
                                              "version": {"major": 2, "minor": 15, "revision": 1}})
         assert request.headers["authorization"] == "Bearer token"
+        if p == "/search/issues":
+            assert request.url.params["q"] == "author:mews-se -user:mews-se is:open"
+            return httpx.Response(200, content=fixture("github_search.json"))
+        if "/issues/" in p:
+            fetched.append(p.removeprefix("/repos/"))
         if p.endswith("/issues/98"):
             return httpx.Response(200, content=fixture("github_pr.json"))
-        if p.endswith("/issues/100"):
-            return httpx.Response(200, content=fixture("github_issue.json"))
-        if "/issues/" in p:
+        if p.endswith("/issues/97"):
             return httpx.Response(404, json={"message": "Not Found"})
+        if "/issues/" in p:
+            return httpx.Response(200, content=fixture("github_issue.json"))
         if p == "/repos/henrygd/beszel/releases/latest":
             return httpx.Response(200, content=fixture("github_release.json"))
         if p == "/repos/Finsys/dockhand/releases/latest":
@@ -325,12 +332,26 @@ async def test_github(cfg, secrets):
                         {"image": "teslamate/teslamate:latest", "version": "v4.2.0"})
     ctx.db.put_snapshot("kuma", "app", {"version": "2.5.3"})
     ctx.db.put_snapshot("dockhand.system", "version", {"version": "1.0.46"})
+    row = dict(kind="pr", title="t", updated_at="a", comments=0, url="u")
+    ctx.db.upsert_thread("Hosteroid/domain-monitor", 98, state="open", author="mews-se", **row)
+    ctx.db.upsert_thread("Alex313031/apple-music-desktop", 28, state="closed", author="mews-se",
+                         **row)
+    ctx.db.upsert_thread("o/r", 1, state="open", author="other", **row)
     threads, releases = github.build(ctx)[0]
-    with pytest.raises(sources.SourceError, match="#99"):
+    with pytest.raises(sources.SourceError, match="#97"):
         await threads.collect()
     by = {(t["repo"], t["number"]): t for t in ctx.db.threads()}
-    assert by[("Hosteroid/domain-monitor", 98)]["state"] == "merged"
     assert by[("Hosteroid/domain-monitor", 100)]["kind"] == "issue"
+    assert by[("namazso/PawnIO.Modules", 105)]["kind"] == "pr"
+    assert by[("Hosteroid/domain-monitor", 76)]["state"] == "open"
+    # no longer in the search: fetched once more to learn how it ended
+    assert by[("Hosteroid/domain-monitor", 98)]["state"] == "merged"
+    assert ("Alex313031/apple-music-desktop", 28) in by and ("o/r", 1) not in by
+    assert sorted(fetched) == [
+        "Hosteroid/domain-monitor/issues/76", "Hosteroid/domain-monitor/issues/97",
+        "Hosteroid/domain-monitor/issues/98", "Shuzhengz/TPFanCtrl2/issues/117",
+        "teslamate-org/teslamate/issues/5583",
+    ]
     await releases.collect()
     rel = {r["repo"]: r for r in ctx.db.releases()}
     assert rel["henrygd/beszel"]["latest_tag"] == "v0.19.1"
@@ -341,6 +362,22 @@ async def test_github(cfg, secrets):
     assert rel["louislam/uptime-kuma"]["running_version"] == "2.5.3"
     assert rel["Finsys/dockhand"]["latest_tag"] == "1.0.46"
     assert rel["Finsys/dockhand"]["running_version"] == "1.0.46"
+
+
+@pytest.mark.asyncio
+async def test_github_search_down(cfg, secrets):
+    def handler(request):
+        if request.url.path == "/search/issues":
+            return httpx.Response(403, json={"message": "rate limit"})
+        return httpx.Response(200, content=fixture("github_issue.json"))
+
+    ctx = make_ctx(cfg, secrets, handler)
+    ctx.db.upsert_thread("a/b", 1, "pr", "t", "open", "a", 0, "u", "mews-se")
+    threads = github.build(ctx)[0][0]
+    with pytest.raises(sources.SourceError, match="search"):
+        await threads.collect()
+    kept = {(t["repo"], t["number"]) for t in ctx.db.threads()}
+    assert ("a/b", 1) in kept and ("Hosteroid/domain-monitor", 76) in kept
 
 
 def test_image_tag():

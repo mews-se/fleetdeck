@@ -115,7 +115,14 @@ def test_prune_and_speedtests():
     db.upsert_speedtests("home", [(1, now - 400 * 86400, 900, 100, 3, "completed", "s")])
     db.upsert_speedtests("home", [(2, now - 3600, 930, 110, 2, "completed", "s")])
     db.add_samples([("x", now - 100 * 86400, 1.0), ("x", now, 2.0)])
+    thread = dict(kind="pr", title="t", updated_at="a", comments=0, url="u", author="a")
+    db.upsert_thread("o/r", 1, state="merged", ts=now - 20 * 86400, **thread)
+    db.upsert_thread("o/r", 2, state="open", ts=now - 20 * 86400, **thread)
+    db.upsert_thread("o/r", 3, state="closed", ts=now - 86400, **thread)
     db.prune(ts=now)
+    assert [t["number"] for t in db.threads()] == [2, 3]
+    db.delete_thread("o/r", 2)
+    assert [t["number"] for t in db.threads()] == [3]
     assert [r["id"] for r in db.speedtests("home", 0)] == [2]
     assert db.last_speedtest_ts("home") == now - 3600
     assert db.series("x", 0) == [(now, 2.0)]

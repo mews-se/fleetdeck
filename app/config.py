@@ -18,6 +18,7 @@ RULES = ("prod", "test", "readonly")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 SSH_RE = re.compile(r"^[a-z_][a-z0-9_-]*@[A-Za-z0-9.\-]+$")
 CLOCK_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+LOGIN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*$")
 
 
 class ConfigError(Exception):
@@ -114,6 +115,7 @@ class WatchRelease:
 @dataclass
 class Github:
     secret: str | None = None
+    author: str | None = None
     threads: list[WatchThread] = field(default_factory=list)
     releases: list[WatchRelease] = field(default_factory=list)
 
@@ -451,8 +453,12 @@ def parse(data: dict) -> Config:
             elif kind not in ("kuma", "adguard", "dockhand_version"):
                 raise ConfigError(f"{where}.running_from: unknown kind '{kind}'")
         releases.append(WatchRelease(repo=repo, running_from=dict(running)))
+    author = _str(gh, "watch_author", "github", required=False)
+    if author and not LOGIN_RE.match(author):
+        raise ConfigError("github: watch_author must be a GitHub login")
     github = Github(
         secret=_str(gh, "secret", "github", required=False),
+        author=author,
         threads=threads,
         releases=releases,
     )

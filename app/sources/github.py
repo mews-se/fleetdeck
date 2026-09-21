@@ -97,16 +97,53 @@ class GithubThreads(GithubSource):
     interval = 900
     name = "github.threads"
 
+    async def authored(self, author: str) -> list[tuple[str, int, dict]]:
+        """Every open thread the account started outside its own repositories."""
+        r = await self.get("/search/issues", q=f"author:{author} -user:{author} is:open",
+                           per_page=100)
+        r.raise_for_status()
+        found = []
+        for item in r.json().get("items") or []:
+            repo = (item.get("repository_url") or "").partition("/repos/")[2]
+            if repo and item.get("number"):
+                found.append((repo, int(item["number"]), item))
+        return found
+
+    async def fetch(self, repo: str, number: int) -> bool:
+        r = await self.get(f"/repos/{repo}/issues/{number}")
+        if r.status_code == 404:
+            return False
+        r.raise_for_status()
+        self.ctx.db.upsert_thread(repo, number, **parse_thread(r.json()))
+        return True
+
     async def collect(self):
-        errors = []
-        for watch in self.ctx.config.github.threads:
+        gh = self.ctx.config.github
+        db = self.ctx.db
+        errors, seen = [], set()
+        if gh.author:
+            try:
+                for repo, number, item in await self.authored(gh.author):
+                    db.upsert_thread(repo, number, **parse_thread(item))
+                    seen.add((repo, number))
+            except httpx.HTTPError as e:
+                errors.append(f"search: {e}")
+        for watch in gh.threads:
             for number in watch.numbers:
-                r = await self.get(f"/repos/{watch.repo}/issues/{number}")
-                if r.status_code == 404:
-                    errors.append(f"{watch.repo}#{number}: not found")
+                if (watch.repo, number) in seen:
                     continue
-                r.raise_for_status()
-                self.ctx.db.upsert_thread(watch.repo, number, **parse_thread(r.json()))
+                seen.add((watch.repo, number))
+                if not await self.fetch(watch.repo, number):
+                    errors.append(f"{watch.repo}#{number}: not found")
+        author = (gh.author or "").lower()
+        for t in db.threads():
+            if (t["repo"], t["number"]) in seen:
+                continue
+            if not author or (t["author"] or "").lower() != author:
+                db.delete_thread(t["repo"], t["number"])
+            elif t["state"] == "open":
+                # it left the search because it closed: store how it ended
+                await self.fetch(t["repo"], t["number"])
         if errors:
             raise SourceError("; ".join(errors))
 
@@ -136,12 +173,12 @@ class GithubReleases(GithubSource):
 
 def build(ctx: Context):
     gh = ctx.config.github
-    if not gh.threads and not gh.releases:
+    if not gh.threads and not gh.author and not gh.releases:
         return [], {}
     if not ctx.secrets.has(gh.secret):
         return [], {"github": f"secret {gh.secret} is missing"}
     sources = []
-    if gh.threads:
+    if gh.threads or gh.author:
         sources.append(GithubThreads(ctx))
     if gh.releases:
         sources.append(GithubReleases(ctx))

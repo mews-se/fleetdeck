@@ -52,8 +52,10 @@ and get linked; fleetdeck is the page you open first.
   Tailscale peers, and every DHCP mapping, lease and ARP entry with the
   fleetdeck host it belongs to.
 - **Upstream**: the issues and pull requests you are waiting on, and the
-  releases you run against the latest tag. The running version comes from
-  the image's version label, the app's own API or a versioned image tag.
+  releases you run against the latest tag. Open threads your account started
+  in other people's repositories are found on their own (`watch_author`),
+  threads started by others are listed by number. The running version comes
+  from the image's version label, the app's own API or a versioned image tag.
 - **Actions**: the catalog, live output over server-sent events, and the run
   history.
 

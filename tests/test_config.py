@@ -69,6 +69,7 @@ def test_example_loads(cfg):
          "unknown timezone"),
         (lambda d: d["github"]["watch_threads"][0].update(repo="domain-monitor"), "owner/name"),
         (lambda d: d["github"]["watch_threads"][0].update(numbers=[]), "numbers must be"),
+        (lambda d: d["github"].update(watch_author="mews-se is:closed"), "GitHub login"),
         (lambda d: d["github"]["watch_releases"][0].update(running_from={"beszel_os": "x"}),
          "unknown kind"),
         (lambda d: d["github"]["watch_releases"][1].update(
