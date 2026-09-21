@@ -305,8 +305,12 @@ async def test_github(cfg, secrets):
                                              "version": {"major": 2, "minor": 15, "revision": 1}})
         assert request.headers["authorization"] == "Bearer token"
         if p == "/search/issues":
-            assert request.url.params["q"] == "author:mews-se -user:mews-se is:open"
-            return httpx.Response(200, content=fixture("github_search.json"))
+            q = request.url.params["q"]
+            base = "author:mews-se -user:mews-se is:open is:"
+            assert q in (base + "issue", base + "pull-request")
+            items = [i for i in json.loads(fixture("github_search.json"))["items"]
+                     if ("pull_request" in i) == q.endswith("pull-request")]
+            return httpx.Response(200, json={"total_count": len(items), "items": items})
         if "/issues/" in p:
             fetched.append(p.removeprefix("/repos/"))
         if p.endswith("/issues/98"):

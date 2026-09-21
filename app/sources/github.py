@@ -99,14 +99,16 @@ class GithubThreads(GithubSource):
 
     async def authored(self, author: str) -> list[tuple[str, int, dict]]:
         """Every open thread the account started outside its own repositories."""
-        r = await self.get("/search/issues", q=f"author:{author} -user:{author} is:open",
-                           per_page=100)
-        r.raise_for_status()
         found = []
-        for item in r.json().get("items") or []:
-            repo = (item.get("repository_url") or "").partition("/repos/")[2]
-            if repo and item.get("number"):
-                found.append((repo, int(item["number"]), item))
+        # a fine-grained token gets a 422 unless the query names one kind
+        for kind in ("issue", "pull-request"):
+            r = await self.get("/search/issues", per_page=100,
+                               q=f"author:{author} -user:{author} is:open is:{kind}")
+            r.raise_for_status()
+            for item in r.json().get("items") or []:
+                repo = (item.get("repository_url") or "").partition("/repos/")[2]
+                if repo and item.get("number"):
+                    found.append((repo, int(item["number"]), item))
         return found
 
     async def fetch(self, repo: str, number: int) -> bool:
