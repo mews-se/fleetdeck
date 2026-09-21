@@ -16,12 +16,16 @@ ATTENTION_THROTTLE = 10
 PRUNE_INTERVAL = 3600
 VACUUM_INTERVAL = 86400
 BACKOFF_MAX = 3600
+RETRY_DELAY = 300
 
 
 def next_delay(source: Source, errors: int) -> float:
-    if not source.backoff or errors == 0:
+    if errors == 0:
         return float(source.interval)
-    return float(min(source.interval * 2 ** min(errors, 8), BACKOFF_MAX))
+    if source.backoff:
+        return float(min(source.interval * 2 ** min(errors, 8), BACKOFF_MAX))
+    # one bad tick must not leave a six-hour source failing until the next one
+    return float(min(source.interval, RETRY_DELAY))
 
 
 class Scheduler:

@@ -594,6 +594,10 @@ def test_next_delay():
     assert [next_delay(s, n) for n in (0, 1, 2, 3, 4, 40)] == [300, 600, 1200, 2400, 3600, 3600]
     s.backoff = False
     assert next_delay(s, 5) == 300
+    s.interval = 6 * 3600
+    assert [next_delay(s, n) for n in (0, 1, 5)] == [21600, 300, 300]
+    s.interval = 60
+    assert next_delay(s, 3) == 60
 
 
 def test_pfsense_attention(cfg):
