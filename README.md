@@ -165,8 +165,9 @@ configured; everything else keeps running.
 
 pfSense is read over ssh with the console key, but the key never gets a
 shell there: the authorized key line carries `command=`, so every login runs
-`contrib/pfsense/fleetdeck-read.sh`, which answers three read-only
-subcommands (`dhcp`, `status`, `tailscale`) and refuses anything else. Put
+`contrib/pfsense/fleetdeck-read.sh`, which only reads: fleetdeck asks for
+`all` and gets everything in one login; `dhcp`, `status` and `tailscale`
+print one part each for checking by hand, anything else is refused. Put
 the script at `/root/fleetdeck-read.sh` on each box (`chmod 755`) and add the
 line from `contrib/pfsense/authorized_keys.example` under System → User
 Manager → the ssh user → Authorized SSH Keys, with your own `from=` address

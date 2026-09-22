@@ -581,10 +581,13 @@ def test_pfsense_tailscale():
     assert pfsense.parse_tailscale({})[0] == {}
 
 
-def fake_ssh(host, argv):
-    name = {"status": "pfsense_status.txt", "dhcp": "pfsense_dhcp.json",
-            "tailscale": "pfsense_tailscale.json"}[argv[0]]
-    return ["cat", str(FIXTURES / name)]
+def fake_ssh(tailscale=None, dhcp=None):
+    """Prints the fixtures the way `all` does on the box; parts can be swapped."""
+    tailscale = tailscale or f"cat {FIXTURES / 'pfsense_tailscale.json'}"
+    dhcp = dhcp or f"cat {FIXTURES / 'pfsense_dhcp.json'}"
+    script = (f"cat {FIXTURES / 'pfsense_status.txt'}; echo '== tailscale'; {tailscale}; echo;"
+              f" echo '== dhcp'; {dhcp}")
+    return lambda host, argv: ["sh", "-c", script if argv == ["all"] else "exit 1"]
 
 
 @pytest.mark.asyncio
@@ -592,12 +595,11 @@ async def test_pfsense_collect(cfg, secrets):
     ctx = make_ctx(cfg, secrets, route({}))
     assert pfsense.build(ctx) == ([], {"pfsense.home": "no ssh key configured",
                                        "pfsense.brk": "no ssh key configured"})
-    ctx.ssh_argv = fake_ssh
+    ctx.ssh_argv = fake_ssh()
     built, missing = pfsense.build(ctx)
     assert missing == {}
-    assert [s.name for s in built] == ["pfsense.home", "pfsense.home.dhcp", "pfsense.brk",
-                                       "pfsense.brk.dhcp"]
-    assert all(s.backoff for s in built) and built[1].timeout == 120
+    assert [s.name for s in built] == ["pfsense.home", "pfsense.brk"]
+    assert all(s.backoff and s.timeout == 120 for s in built)
     for s in built:
         await s.collect()
     box = ctx.db.get_snapshot("pfsense.home", "box")
@@ -607,21 +609,27 @@ async def test_pfsense_collect(cfg, secrets):
     assert ctx.db.get_snapshot("pfsense.home.dhcp", "lease:10.0.1.45")["quiet"] is False
     assert ctx.db.latest_sample("pfsense.home.states")[1] == 12345
 
-    def half(host, argv):
-        return fake_ssh(host, argv) if argv[0] == "status" else ["sh", "-c", "exit 1"]
-
-    ctx.ssh_argv = half
-    with pytest.raises(sources.SourceError, match="tailscale"):
+    # tailscale down on the box: its part is empty, the rest still lands
+    ctx.ssh_argv = fake_ssh(tailscale="true")
+    with pytest.raises(sources.SourceError, match="^tailscale: not JSON"):
         await built[0].collect()
     assert ctx.db.get_snapshot("pfsense.home", "box")["states"] == 12345
     assert ctx.db.get_snapshots("pfsense.home", "peer:") == []
+    assert ctx.db.get_snapshot("pfsense.home.dhcp", "lease:10.0.1.45")
+    ctx.ssh_argv = fake_ssh(dhcp="echo not json")
+    with pytest.raises(sources.SourceError, match="^dhcp: not JSON"):
+        await built[0].collect()
+    assert ctx.db.get_snapshot("pfsense.home", "peer:m-iphone")
+    ctx.ssh_argv = lambda host, argv: ["sh", "-c", "printf '== version\n2.8.0\n'"]
+    with pytest.raises(sources.SourceError, match="tailscale: no section; dhcp: no section"):
+        await built[0].collect()
+    ctx.ssh_argv = lambda host, argv: ["sh", "-c", "echo 'refused: all' >&2; exit 1"]
+    with pytest.raises(sources.SourceError, match="exit 1: refused: all"):
+        await built[0].collect()
     ctx.ssh_argv = lambda host, argv: ["sh", "-c",
                                        "echo 'Permission denied (publickey).' >&2; exit 255"]
     with pytest.raises(sources.SourceError, match=r"exit 255.*Permission denied"):
         await built[0].collect()
-    ctx.ssh_argv = lambda host, argv: ["sh", "-c", "echo not json"]
-    with pytest.raises(sources.SourceError, match="not JSON"):
-        await built[1].collect()
 
 
 def test_next_delay():

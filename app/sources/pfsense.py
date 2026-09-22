@@ -1,8 +1,9 @@
 """pfSense over ssh, behind a forced command on the firewall side.
 
 The key line on each box runs contrib/pfsense/fleetdeck-read.sh for every
-login, so the three subcommands below are all fleetdeck can ask for: the
-DHCP leases with the ARP table, a few counters, and Tailscale's peer list.
+login, so its subcommands are all fleetdeck can ask for. One login per tick:
+"all" prints a few counters, Tailscale's peer list and the DHCP leases with
+the ARP table as '== name' sections, and the parsers below take them apart.
 """
 
 import ipaddress
@@ -15,8 +16,7 @@ from app.config import Pfsense
 from app.sources import Context, Source, SourceError
 from app.ssh import capture
 
-STATUS_INTERVAL = 300
-DHCP_INTERVAL = 300
+INTERVAL = 300
 ONLINE = "active/online"
 SECTION_RE = re.compile(r"^== (\S+)(?: (\S+))?$")
 NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
@@ -201,64 +201,59 @@ def parse_tailscale(data: dict) -> tuple[dict[str, dict], dict]:
     return peers, self_
 
 
+
+def section_json(s: dict, name: str):
+    if name not in s:
+        raise SourceError(f"{name}: no section")
+    try:
+        return json.loads("\n".join(s[name][1]))
+    except json.JSONDecodeError as e:
+        raise SourceError(f"{name}: not JSON ({e})") from None
+
+
 class PfsenseSource(Source):
+    interval = INTERVAL
+    timeout = 120
     backoff = True
 
     def __init__(self, ctx: Context, box: Pfsense):
         super().__init__(ctx)
         self.box = box
         self.host = ctx.config.hosts[box.host]
+        self.name = f"pfsense.{box.id}"
 
-    async def read(self, sub: str) -> str:
-        code, out, err = await capture(self.ctx.ssh_argv(self.host, [sub]))
+    async def read(self) -> str:
+        code, out, err = await capture(self.ctx.ssh_argv(self.host, ["all"]))
         if code != 0:
             detail = err.decode("utf-8", "replace").strip().splitlines()
             last = f": {detail[-1][:160]}" if detail else ""
-            raise SourceError(f"{sub}: ssh exit {code}{last}")
+            raise SourceError(f"ssh exit {code}{last}")
         return out.decode("utf-8", "replace")
 
-
-class PfsenseStatus(PfsenseSource):
-    interval = STATUS_INTERVAL
-
-    def __init__(self, ctx: Context, box: Pfsense):
-        super().__init__(ctx, box)
-        self.name = f"pfsense.{box.id}"
-
     async def collect(self):
-        text = await self.read("status")
+        text = await self.read()
         ts = self.ctx.now()
+        s = sections(text)
         rows = self.ctx.db.get_snapshots(self.name, "box")
         prev_ts, prev = (rows[0][1], rows[0][2]) if rows else (None, None)
         box, samples = parse_status(self.box.id, text, prev, prev_ts, ts)
         snaps = {"box": box}
-        error = None
+        errors = []
         try:
-            peers, box["tailscale"] = parse_tailscale(json.loads(await self.read("tailscale")))
+            peers, box["tailscale"] = parse_tailscale(section_json(s, "tailscale"))
             snaps.update({f"peer:{k}": v for k, v in peers.items()})
-        except (SourceError, json.JSONDecodeError) as e:
-            error = f"tailscale: {e}"
+        except SourceError as e:
+            errors.append(str(e))
         self.ctx.db.put_snapshots(self.name, snaps, ts=ts)
         self.ctx.db.add_samples(samples)
-        if error:
-            raise SourceError(error)
-
-
-class PfsenseDhcp(PfsenseSource):
-    interval = DHCP_INTERVAL
-    timeout = 120
-
-    def __init__(self, ctx: Context, box: Pfsense):
-        super().__init__(ctx, box)
-        self.name = f"pfsense.{box.id}.dhcp"
-
-    async def collect(self):
-        text = await self.read("dhcp")
+        # the leases keep their own snapshot name; the views and rules read them there
         try:
-            data = json.loads(text)
-        except json.JSONDecodeError as e:
-            raise SourceError(f"dhcp: not JSON ({e})") from None
-        self.ctx.db.put_snapshots(self.name, parse_dhcp(data, self.box), ts=self.ctx.now())
+            leases = parse_dhcp(section_json(s, "dhcp"), self.box)
+            self.ctx.db.put_snapshots(f"{self.name}.dhcp", leases, ts=ts)
+        except SourceError as e:
+            errors.append(str(e))
+        if errors:
+            raise SourceError("; ".join(errors))
 
 
 def build(ctx: Context):
@@ -268,5 +263,5 @@ def build(ctx: Context):
         if ctx.ssh_argv is None:
             missing[f"pfsense.{box.id}"] = "no ssh key configured"
             continue
-        sources += [PfsenseStatus(ctx, box), PfsenseDhcp(ctx, box)]
+        sources.append(PfsenseSource(ctx, box))
     return sources, missing

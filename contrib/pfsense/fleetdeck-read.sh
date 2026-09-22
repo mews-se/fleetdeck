@@ -2,13 +2,13 @@
 # Forced command for the fleetdeck console key on pfSense. The key line in
 # System > User Manager > admin > Authorized SSH Keys carries
 # command="/root/fleetdeck-read.sh", so this script is all the key can run:
-# three read-only subcommands, anything else is refused.
+# read-only subcommands, anything else is refused. fleetdeck asks for "all",
+# one login per poll; the single parts stay for checking by hand.
 
-case "$SSH_ORIGINAL_COMMAND" in
-dhcp)
+read_dhcp() {
 	# leases and static mappings the way status_dhcp_leases.php reads
 	# them, without the reverse DNS lookups (false) that the page does
-	exec /usr/local/bin/php -q <<'PHP'
+	/usr/local/bin/php -q <<'PHP'
 <?php
 require_once("config.inc");
 require_once("functions.inc");
@@ -17,8 +17,9 @@ echo json_encode(array(
 	"arp" => system_get_arp_table(),
 ));
 PHP
-	;;
-status)
+}
+
+read_status() {
 	wan=$(route -n get default 2>/dev/null | awk '/interface:/ {print $2}')
 	echo "== version"
 	cat /etc/version
@@ -37,9 +38,29 @@ status)
 	netstat -ibn -I "$wan"
 	echo "== unbound"
 	ps -o etimes= -p "$(cat /var/run/unbound.pid 2>/dev/null)" 2>/dev/null
+}
+
+read_tailscale() {
+	/usr/local/bin/tailscale status --json
+}
+
+case "$SSH_ORIGINAL_COMMAND" in
+all)
+	read_status
+	echo "== tailscale"
+	read_tailscale
+	echo
+	echo "== dhcp"
+	read_dhcp
+	;;
+dhcp)
+	read_dhcp
+	;;
+status)
+	read_status
 	;;
 tailscale)
-	exec /usr/local/bin/tailscale status --json
+	read_tailscale
 	;;
 *)
 	echo "refused: $SSH_ORIGINAL_COMMAND" >&2
