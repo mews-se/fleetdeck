@@ -1,4 +1,4 @@
-from app.clock import window_state
+from app.clock import local_hhmm, window_state
 from app.views import State, containers, guests, hosts, network, upstream
 
 DAY = 86400
@@ -11,6 +11,15 @@ def stats(state: State, h, g, c, k, ag, st) -> list[dict]:
         dns = {"value": f"{q / 1000:.1f}k" if q >= 1000 else str(q),
                "sub": f"{ag['blocked_pct']} % blocked · {ag['stats'].get('avg_ms')} ms upstream"}
     wan = next((s for s in st if s["latest"]), None)
+    ok = wan["latest_ok"] if wan else None
+    if ok:
+        wan_sub = f"{ok['upload']:.0f} up · {ok['ping']} ms"
+        if wan["latest"]["status"] != "completed":
+            wan_sub += f" · failed {local_hhmm(wan['latest']['created_at'])}"
+    elif wan:
+        wan_sub = f"last test failed {local_hhmm(wan['latest']['created_at'])}"
+    else:
+        wan_sub = "no speedtest yet"
     return [
         {"label": "Hosts up", "value": h["up"], "of": h["total"],
          "sub": f"{h['off']} off by rule" + (f" · {h['noagent']} without agent"
@@ -28,11 +37,8 @@ def stats(state: State, h, g, c, k, ag, st) -> list[dict]:
          "kind": "warn" if k["counts"]["down"] else ""},
         {"label": "DNS 24 h", "value": dns["value"] if dns else "—",
          "sub": dns["sub"] if dns else "AdGuard not read yet", "kind": ""},
-        {"label": "WAN", "value": f"{wan['latest']['download']:.0f}" if wan and wan["latest"].get(
-            "download") else "—",
-         "unit": "Mbit/s",
-         "sub": f"{wan['latest']['upload']:.0f} up · {wan['latest']['ping']} ms"
-         if wan and wan["latest"].get("download") else "no speedtest yet", "kind": ""},
+        {"label": "WAN", "value": f"{ok['download']:.0f}" if ok else "—",
+         "unit": "Mbit/s", "sub": wan_sub, "kind": ""},
     ]
 
 

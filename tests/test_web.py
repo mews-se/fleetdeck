@@ -356,3 +356,21 @@ def test_other_devices(client):
     assert home["box"] == "pfsense-home" and home["quiet"] == 0
     assert [x["ip"] for x in brk["devices"]] == ["10.0.1.230"] and brk["quiet"] == 1
     assert brk["devices"][0]["kind"] == "dynamic" and brk["devices"][0]["ends"] == 1_900_000_000
+
+
+def test_wan_tile_shows_the_last_completed_test(client):
+    db = client.app.state.console.db
+    now = int(time.time())
+
+    def wan():
+        stats = client.get("/api/view/overview").json()["stats"]
+        return next(s for s in stats if s["label"] == "WAN")
+
+    assert wan()["sub"] == "no speedtest yet"
+    db.upsert_speedtests("home", [(1, now - 3600, None, None, None, "failed", None)])
+    assert wan()["value"] == "—" and wan()["sub"].startswith("last test failed ")
+    db.upsert_speedtests("home", [(2, now - 1800, 930.4, 110.0, 2.0, "completed", "s"),
+                                  (3, now - 600, None, None, None, "failed", None)])
+    w = wan()
+    assert w["value"] == "930"
+    assert w["sub"].startswith("110 up · 2.0 ms · failed ")

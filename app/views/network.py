@@ -52,11 +52,13 @@ def speedtests(state: State) -> list[dict]:
         day = [r for r in week if r["created_at"] >= now - DAY]
         completed = [r for r in week if r["status"] == "completed" and r["download"] is not None]
         latest = week[-1] if week else None
+        latest_ok = completed[-1] if completed else None
         out.append({
             "id": ep.id,
             "site": config.sites[ep.site].name if ep.site else "",
             "url": ep.url,
             "latest": latest,
+            "latest_ok": latest_ok,
             "day": {
                 "count": len(day),
                 "failed": sum(1 for r in day if r["status"] != "completed"),
